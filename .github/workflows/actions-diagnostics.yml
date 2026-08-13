@@ -1,0 +1,51 @@
+name: Public Actions Diagnostics
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  basic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test tooling
+        run: python -m pip install --disable-pip-version-check pytest
+      - name: Smoke test
+        run: python -c "assert 2 + 2 == 4; print('basic runner OK')"
+
+  artifacts:
+    needs: basic
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create diagnostic artifact
+        run: |
+          mkdir -p diagnostics
+          printf 'runner=%s\nrun=%s\n' "$RUNNER_OS" "$GITHUB_RUN_ID" > diagnostics/runner.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-actions-diagnostic
+          path: diagnostics/runner.txt
+
+  matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11']
+    runs-on: ubuntu-latest
+    steps:
+      - name: Python matrix
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Matrix check
+        run: python --version
