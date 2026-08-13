@@ -1,0 +1,29 @@
+name: Public Synthetic Suite v2
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'experiments/**'
+      - '.github/workflows/public-suite-v2.yml'
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11']
+        seed: ['42', '43']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install --disable-pip-version-check numpy
+      - run: python -m py_compile experiments/public_runner.py
+      - run: python -c "from experiments.public_runner import run; run(${{ matrix.seed }})"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-${{ matrix.python }}-${{ matrix.seed }}
+          path: experiments/results/
