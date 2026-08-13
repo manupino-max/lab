@@ -1,0 +1,66 @@
+name: ERIZO Synthetic CI Fixture
+
+on:
+  push:
+    paths:
+      - 'experiments/erizo-ci-fixture/**'
+      - '.github/workflows/erizo-fixture.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: erizo-fixture-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-fixture:
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.11']
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check numpy
+
+      - name: Compile fixture
+        run: python -m py_compile experiments/erizo-ci-fixture/run_fixture.py
+
+      - name: Run synthetic experiment
+        run: python experiments/erizo-ci-fixture/run_fixture.py
+
+      - name: Verify result
+        run: |
+          test -s experiments/erizo-ci-fixture/results/fixture_results.csv
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          p = Path('experiments/erizo-ci-fixture/results/fixture_results.csv')
+          rows = list(csv.DictReader(p.open(encoding='utf-8')))
+          assert len(rows) == 32, len(rows)
+          print(f'validated {len(rows)} rows')
+          PY
+
+      - name: Upload result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: erizo-fixture-python-${{ matrix.python }}
+          path: experiments/erizo-ci-fixture/results/fixture_results.csv
+
+  aggregate:
+    needs: run-fixture
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate job reached
+        run: echo "All ERIZO synthetic matrix jobs completed successfully."
