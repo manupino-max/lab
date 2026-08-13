@@ -1,0 +1,15 @@
+name: Public Actions Test
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check runner
+        run: |
+          echo "GitHub Actions public runner is working"
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Run: $GITHUB_RUN_ID"
