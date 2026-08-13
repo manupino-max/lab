@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: pip install numpy scikit-learn
       - name: Smoke test
-        run: python experiments/smoke_test_three_papers.py
+        run: python -m experiments.smoke_test_three_papers
       - name: Run clean-room suite
         run: python experiments/reproducible_three_papers.py
       - name: Upload reproducibility results
