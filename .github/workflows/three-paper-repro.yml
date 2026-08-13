@@ -1,0 +1,24 @@
+name: Three-paper reproducibility
+on:
+  push:
+    paths:
+      - 'experiments/reproducible_three_papers.py'
+      - '.github/workflows/three-paper-repro.yml'
+  workflow_dispatch:
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install numpy scikit-learn
+      - name: Run clean-room suite
+        run: python experiments/reproducible_three_papers.py
+      - name: Upload reproducibility results
+        uses: actions/upload-artifact@v4
+        with:
+          name: three-paper-reproducibility
+          path: results/three_papers/
