@@ -1,0 +1,135 @@
+name: M4 mean-line Gaussian fairness experiment
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m4_mean_line_gaussian_fairness.yml'
+  workflow_dispatch:
+
+jobs:
+  mean-line:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy==1.26.4' 'scipy==1.13.1' 'scikit-learn==1.5.2' 'torch==2.4.1' 'transformers==4.45.2' 'pandas==2.2.3' 'pillow==10.4.0' 'requests==2.32.3' 'beautifulsoup4==4.12.3'
+      - name: Run frozen mean-line experiment
+        run: |
+          cat > /tmp/m4.py <<'PY'
+          import json, hashlib, zipfile, platform, time
+          from pathlib import Path
+          import numpy as np, pandas as pd, requests, torch
+          from bs4 import BeautifulSoup
+          from PIL import Image
+          from transformers import AutoImageProcessor, AutoModel
+          from sklearn.linear_model import LogisticRegression
+          from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score, accuracy_score
+          from scipy.stats import wasserstein_distance
+
+          ROOT=Path('/tmp/m4'); OUT=Path('m4_mean_line_evidence'); ROOT.mkdir(exist_ok=True); OUT.mkdir(exist_ok=True)
+          URL='https://isic-archive.s3.amazonaws.com/dois/10.34970-648456/milk10k.zip'
+          zpath=ROOT/'milk10k.zip'; r=requests.get(URL,timeout=600); r.raise_for_status(); zpath.write_bytes(r.content)
+          bundle_sha=hashlib.sha256(zpath.read_bytes()).hexdigest()
+          with zipfile.ZipFile(zpath) as z:z.extractall(ROOT/'images')
+          soup=BeautifulSoup(requests.get('https://api.isic-archive.com/doi/milk10k/',timeout=60).text,'html.parser')
+          csvs=[]
+          for a in soup.find_all('a'):
+            u=a.get('href') or ''
+            if 'isic-archive.s3.amazonaws.com' in u and u.lower().split('?')[0].endswith('.csv'): csvs.append(u)
+          csvs=list(dict.fromkeys(csvs)); frames=[]
+          for i,u in enumerate(csvs):
+            rr=requests.get(u,timeout=180); rr.raise_for_status(); p=ROOT/f'src{i}.csv'; p.write_bytes(rr.content); frames.append(pd.read_csv(p))
+          def norm(s):
+            import re; return re.sub(r'[^a-z0-9]+','_',str(s).lower()).strip('_')
+          def find(df,*names):
+            ns={norm(x) for x in names}
+            return next((c for c in df.columns if norm(c) in ns),None)
+          tone_df=next(d for d in frames if find(d,'lesion_id') and find(d,'skin_tone_class'))
+          tl,tc=find(tone_df,'lesion_id'),find(tone_df,'skin_tone_class'); tone=tone_df[[tl,tc]].copy(); tone['_tone']=pd.to_numeric(tone[tc],errors='coerce'); tone=tone.drop_duplicates(tl)
+          clsset={'akiec','bcc','ben_oth','bkl','df','inf','mal_oth','mel','nv','sccka','vasc'}
+          dg=next(d for d in frames if find(d,'lesion_id') and sum(norm(c) in clsset for c in d.columns)>=5)
+          gl=find(dg,'lesion_id'); cls=[c for c in dg.columns if norm(c) in clsset]; gg=dg[[gl]+cls].copy()
+          for c in cls: gg[c]=pd.to_numeric(gg[c],errors='coerce').fillna(0)
+          gg['_diagnosis']=gg[cls].idxmax(1); gt=gg[[gl,'_diagnosis']]
+          base=next(d for d in frames if find(d,'isic_id') and find(d,'lesion_id')); il,bl=find(base,'isic_id'),find(base,'lesion_id')
+          df=base[[il,bl]].astype(str).merge(tone[[tl,'_tone']].astype({tl:str}),left_on=bl,right_on=tl,how='left').merge(gt.astype({gl:str}),left_on=bl,right_on=gl,how='left')
+          lesions=np.array(sorted(df[bl].unique()),dtype=object); rng=np.random.default_rng(42); rng.shuffle(lesions); n=len(lesions); ntr=int(.70*n); nva=int(.15*n); split={k:('train' if i<ntr else 'val' if i<ntr+nva else 'test') for i,k in enumerate(lesions)}
+          df['split']=df[bl].map(split); lesion=df[[bl,'_tone','_diagnosis']].drop_duplicates(bl).rename(columns={bl:'lesion_id'}); lesion['dark']=(lesion['_tone']<=2).astype(int); lesion['split']=lesion.lesion_id.map(split); assert len(lesion)==5240
+          imap={p.stem.casefold():p for p in (ROOT/'images').rglob('*') if p.is_file() and p.suffix.lower() in {'.jpg','.jpeg','.png','.webp'}}
+          ids=[]
+          for _,q in df[[il,bl]].drop_duplicates().iterrows():
+            p=imap.get(str(q[il]).casefold())
+            if p is not None: ids.append((str(q[bl]),p))
+          proc=AutoImageProcessor.from_pretrained('facebook/dinov2-base'); model=AutoModel.from_pretrained('facebook/dinov2-base').eval(); device='cuda' if torch.cuda.is_available() else 'cpu'; model.to(device)
+          acc={}; bs=32; t0=time.time()
+          for i in range(0,len(ids),bs):
+            chunk=ids[i:i+bs]; ims=[Image.open(p).convert('RGB') for _,p in chunk]
+            with torch.no_grad(): z=model(**proc(images=ims,return_tensors='pt').to(device)).last_hidden_state[:,0].cpu().numpy()
+            for (lid,_),v in zip(chunk,z): acc.setdefault(lid,[]).append(v)
+            if i%(bs*20)==0: print('images',i,'/',len(ids),'elapsed',round(time.time()-t0,1))
+          rows=[]
+          for lid,v in acc.items():
+            q=lesion[lesion.lesion_id==lid].iloc[0]; rows.append((lid,q['split'],float(q['_tone']),int(q['dark']),str(q['_diagnosis']),len(v),*np.mean(v,axis=0)))
+          cols=['lesion_id','split','skin_tone','dark','diagnosis','n_images']+[f'z{i}' for i in range(768)]; e=pd.DataFrame(rows,columns=cols); zc=cols[6:]
+          tr=e[e.split=='train'].copy(); te=e[e.split=='test'].copy(); Xtr=tr[zc].to_numpy(np.float64); Xte=te[zc].to_numpy(np.float64); gtr=tr.dark.to_numpy(int); gte=te.dark.to_numpy(int); ytr=tr.diagnosis.to_numpy(); yte=te.diagnosis.to_numpy()
+          # Frozen downstream models: task model is trained on original training representation and evaluated after each intervention.
+          task=LogisticRegression(max_iter=2000).fit(Xtr,ytr)
+          fair=LogisticRegression(max_iter=2000).fit(Xtr,gtr)
+          mu0=Xtr[gtr==0].mean(0); mu1=Xtr[gtr==1].mean(0); d=mu1-mu0; midpoint=(mu0+mu1)/2; d2=float(d@d)
+          # Gaussian diagnostic: diagonal-covariance Gaussian classifiers, before and after mean-only transport.
+          cov0=np.var(Xtr[gtr==0],axis=0)+1e-6; cov1=np.var(Xtr[gtr==1],axis=0)+1e-6
+          def auc(y,s):
+            a=roc_auc_score(y,s); return float(max(a,1-a))
+          def metrics(alpha,target_lambda):
+            # target m(lambda)=lambda*mu0+(1-lambda)*mu1. lambda=.5 is the fairness midpoint.
+            target=target_lambda*mu0+(1-target_lambda)*mu1
+            Xt=Xte.copy()
+            # Move each group's mean along the line joining the two original means toward the common target.
+            for g,mu in [(0,mu0),(1,mu1)]:
+              mask=gte==g; Xt[mask] += alpha*(target-mu)
+            # protected predictability is evaluated by a freshly fitted probe on transformed TRAIN data,
+            # avoiding the invalidity of evaluating a probe trained on an incompatible representation.
+            Ttr=Xtr.copy()
+            for g,mu in [(0,mu0),(1,mu1)]: Ttr[gtr==g] += alpha*(target-mu)
+            fp=LogisticRegression(max_iter=2000).fit(Ttr,gtr); tp=LogisticRegression(max_iter=2000).fit(Ttr,ytr)
+            ps=fp.predict_proba(Xt)[:,1]; yp=tp.predict(Xt)
+            # Mean gap is the primary geometric fairness diagnostic for this intervention.
+            m0=Xt[gte==0].mean(0); m1=Xt[gte==1].mean(0); mean_gap=float(np.linalg.norm(m1-m0))
+            return {'alpha':float(alpha),'target_lambda':float(target_lambda),'target_is_midpoint':bool(abs(target_lambda-.5)<1e-12),'protected_auc':auc(gte,ps),'protected_acc':accuracy_score(gte,fp.predict(Xt)),'task_macro_f1':f1_score(yte,yp,average='macro'),'task_balanced_accuracy':balanced_accuracy_score(yte,yp),'task_accuracy':accuracy_score(yte,yp),'mean_gap':mean_gap}
+          alphas=np.linspace(0,1,21); results=[]
+          # Full line sweep for the symmetric midpoint and for several CL targets on the same line.
+          for lam in [0.0,0.25,0.5,0.75,1.0]:
+            for a in alphas: results.append(metrics(float(a),float(lam)))
+          res=pd.DataFrame(results); res.to_csv(OUT/'curve.csv',index=False)
+          mid=res[res.target_is_midpoint].copy(); base=mid.iloc[0]
+          # Pareto rule: maximize fairness improvement (protected AUC decrease from alpha=0) while not losing task F1 by >0.005.
+          base_auc=float(mid.iloc[0].protected_auc); base_f1=float(mid.iloc[0].task_macro_f1)
+          mid['fairness_gain']=base_auc-mid.protected_auc; mid['utility_delta']=mid.task_macro_f1-base_f1; feasible=mid[mid.utility_delta>=-0.005]
+          best=feasible.sort_values(['fairness_gain','task_macro_f1'],ascending=[False,False]).iloc[0].to_dict() if len(feasible) else None
+          # Gaussian interpretation: fit diagonal Gaussian group densities on original and transported data; report KL-like symmetric separation proxy.
+          gauss=[]
+          for _,r0 in mid.iterrows():
+            a=r0.alpha; target=midpoint; Ttr=Xtr.copy(); Tte=Xte.copy()
+            for g,mu in [(0,mu0),(1,mu1)]: Ttr[gtr==g]+=a*(target-mu); Tte[gte==g]+=a*(target-mu)
+            mm0=Ttr[gtr==0].mean(0); mm1=Ttr[gtr==1].mean(0); vv0=np.var(Ttr[gtr==0],0)+1e-6; vv1=np.var(Ttr[gtr==1],0)+1e-6
+            # Symmetric KL between diagonal Gaussians.
+            kl01=.5*np.sum(np.log(vv1/vv0)+(vv0+(mm0-mm1)**2)/vv1-1); kl10=.5*np.sum(np.log(vv0/vv1)+(vv1+(mm0-mm1)**2)/vv0-1)
+            gauss.append((a,float(.5*(kl01+kl10))))
+          gdf=pd.DataFrame(gauss,columns=['alpha','gaussian_sym_kl_diag']); gdf.to_csv(OUT/'gaussian_curve.csv',index=False)
+          summary={'status':'M4_MEAN_LINE_GAUSSIAN','dataset':'MILK10k','bundle_sha256':bundle_sha,'n_lesions':len(e),'n_train':len(tr),'n_test':len(te),'d':768,'seed':42,'mu0_norm':float(np.linalg.norm(mu0)),'mu1_norm':float(np.linalg.norm(mu1)),'mean_distance':float(np.linalg.norm(d)),'midpoint_norm':float(np.linalg.norm(midpoint)),'midpoint':midpoint.tolist(),'baseline_midpoint_auc':base_auc,'baseline_midpoint_f1':base_f1,'best_midpoint_under_f1_tolerance':best,'gaussian_at_alpha0':float(gdf.iloc[0].gaussian_sym_kl_diag),'gaussian_at_alpha1':float(gdf.iloc[-1].gaussian_sym_kl_diag),'device':device,'runtime_seconds':time.time()-t0,'environment':{'python':platform.python_version(),'numpy':np.__version__,'torch':torch.__version__}}
+          summary['midpoint_alpha1']=mid[mid.alpha==1].iloc[0].to_dict(); summary['midpoint_alpha0']=mid[mid.alpha==0].iloc[0].to_dict()
+          json.dump(summary,open(OUT/'summary.json','w'),indent=2); print(json.dumps(summary,indent=2))
+          PY
+          python /tmp/m4.py
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M4_MEAN_LINE_GAUSSIAN
+          path: m4_mean_line_evidence/
+          if-no-files-found: error
