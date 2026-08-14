@@ -1,0 +1,25 @@
+name: M2 LEACE Mode H20
+on:
+  push:
+    paths:
+      - experiments/m2_leace_mode_h20.py
+      - .github/workflows/m2-leace-mode-h20.yml
+jobs:
+  mode_h20:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install concept-erasure scikit-learn scipy numpy torch
+      - name: Run experiment
+        run: python experiments/m2_leace_mode_h20.py
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M2_LEACE_MODE_H20_20260814
+          path: results/M2_LEACE_MODE_H20_20260814/
