@@ -1,0 +1,1 @@
+The experiment uses the same real MILK10k bundle, seed 42, lesion-level split and DINOv2 representation as the canonical M2 P1 baseline, so the comparison is controlled.
