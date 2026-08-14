@@ -1,0 +1,89 @@
+name: M2 P1 MILK10k batched DINOv2 + canonical LEACE
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m2_p1_milk10k_leace_batched.yml'
+  workflow_dispatch:
+
+jobs:
+  p1-batched:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy==1.26.4' 'scipy==1.13.1' 'scikit-learn==1.5.2' 'torch==2.4.1' 'concept-erasure==0.2.1' 'transformers==4.45.2' 'pandas==2.2.3' 'pillow==10.4.0' 'requests==2.32.3' 'beautifulsoup4==4.12.3'
+      - name: Batched frozen real-data execution
+        run: |
+          cat > /tmp/m2_p1_batched.py <<'PY'
+          import json,hashlib,platform,zipfile,time,os
+          from pathlib import Path
+          import numpy as np,pandas as pd,requests,torch
+          from bs4 import BeautifulSoup
+          from PIL import Image
+          from transformers import AutoImageProcessor,AutoModel
+          from concept_erasure import LeaceEraser
+          from sklearn.linear_model import LogisticRegression
+          from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+          from sklearn.metrics import roc_auc_score,f1_score,balanced_accuracy_score
+          from scipy.stats import bootstrap
+          ROOT=Path('/tmp/m2p1b'); ROOT.mkdir(exist_ok=True); OUT=Path('m2_p1_batched_evidence'); OUT.mkdir(exist_ok=True)
+          URL='https://isic-archive.s3.amazonaws.com/dois/10.34970-648456/milk10k.zip'; zpath=ROOT/'milk10k.zip'
+          r=requests.get(URL,timeout=600); r.raise_for_status(); zpath.write_bytes(r.content); bundle_sha=hashlib.sha256(zpath.read_bytes()).hexdigest()
+          with zipfile.ZipFile(zpath) as z:z.extractall(ROOT/'images')
+          soup=BeautifulSoup(requests.get('https://api.isic-archive.com/doi/milk10k/',timeout=60).text,'html.parser')
+          csvs=[]
+          for a in soup.find_all('a'):
+            u=a.get('href') or ''
+            if 'isic-archive.s3.amazonaws.com' in u and u.lower().split('?')[0].endswith('.csv'): csvs.append(u)
+          csvs=list(dict.fromkeys(csvs)); frames=[]
+          for i,u in enumerate(csvs):
+            rr=requests.get(u,timeout=180); rr.raise_for_status(); p=ROOT/f'src{i}.csv'; p.write_bytes(rr.content); frames.append(pd.read_csv(p))
+          def norm(s):
+            import re; return re.sub(r'[^a-z0-9]+','_',str(s).lower()).strip('_')
+          def find(df,*names):
+            ns=[norm(x) for x in names]
+            for c in df.columns:
+              if norm(c) in ns:return c
+            return None
+          tone_df=next(d for d in frames if find(d,'lesion_id') and find(d,'skin_tone_class'))
+          tl,tc=find(tone_df,'lesion_id'),find(tone_df,'skin_tone_class'); tone=tone_df[[tl,tc]].copy(); tone['_tone']=pd.to_numeric(tone[tc],errors='coerce'); tone=tone.drop_duplicates(tl)
+          diag_df=next(d for d in frames if find(d,'lesion_id') and sum(norm(c) in {'akiec','bcc','ben_oth','bkl','df','inf','mal_oth','mel','nv','sccka','vasc'} for c in d.columns)>=5)
+          gl=find(diag_df,'lesion_id'); cls=[c for c in diag_df.columns if norm(c) in {'akiec','bcc','ben_oth','bkl','df','inf','mal_oth','mel','nv','sccka','vasc'}]; gg=diag_df[[gl]+cls].copy(); [gg.__setitem__(c,pd.to_numeric(gg[c],errors='coerce').fillna(0)) for c in cls]; gg['_diagnosis']=gg[cls].idxmax(1); gt=gg[[gl,'_diagnosis']]
+          base=next(d for d in frames if find(d,'isic_id') and find(d,'lesion_id')); il,bl=find(base,'isic_id'),find(base,'lesion_id')
+          df=base[[il,bl]].astype(str).merge(tone[[tl,'_tone']].astype({tl:str}),left_on=bl,right_on=tl,how='left').merge(gt.astype({gl:str}),left_on=bl,right_on=gl,how='left')
+          lesions=np.array(sorted(df[bl].unique()),dtype=object); rng=np.random.default_rng(42); rng.shuffle(lesions); n=len(lesions); ntr=int(.70*n); nva=int(.15*n); split={k:('train' if i<ntr else 'val' if i<ntr+nva else 'test') for i,k in enumerate(lesions)}; df['split']=df[bl].map(split); lesion=pd.DataFrame({'lesion_id':lesions,'split':[split[x] for x in lesions]}); lesion=lesion.merge(df[[bl,'_tone','_diagnosis']].drop_duplicates(bl),left_on='lesion_id',right_on=bl,how='left'); lesion['dark']=(lesion['_tone']<=2).astype(int); assert len(lesion)==5240
+          # image index
+          imap={p.stem.casefold():p for p in (ROOT/'images').rglob('*') if p.is_file() and p.suffix.lower() in {'.jpg','.jpeg','.png','.webp'}}
+          rows=[]; ids=[]
+          for _,r0 in df[[il,bl]].drop_duplicates().iterrows():
+            sid=str(r0[il]); lid=str(r0[bl]); p=imap.get(sid.casefold());
+            if p is not None: ids.append((lid,p))
+          proc=AutoImageProcessor.from_pretrained('facebook/dinov2-base'); model=AutoModel.from_pretrained('facebook/dinov2-base').eval(); device='cuda' if torch.cuda.is_available() else 'cpu'; model.to(device); batch=32; acc={}
+          t0=time.time()
+          for i in range(0,len(ids),batch):
+            chunk=ids[i:i+batch]; ims=[Image.open(p).convert('RGB') for _,p in chunk]
+            with torch.no_grad(): z=model(**proc(images=ims,return_tensors='pt').to(device)).last_hidden_state[:,0].cpu().numpy()
+            for (lid,_),v in zip(chunk,z): acc.setdefault(lid,[]).append(v)
+            if (i//batch)%20==0: print('images',i,'/',len(ids),'sec',round(time.time()-t0,1))
+          emb=[]
+          for lid,v in acc.items(): emb.append((lid,split[lid],float(lesion.loc[lesion.lesion_id==lid,'_tone'].iloc[0]),int(lesion.loc[lesion.lesion_id==lid,'dark'].iloc[0]),str(lesion.loc[lesion.lesion_id==lid,'_diagnosis'].iloc[0]),len(v),*np.mean(v,axis=0)))
+          cols=['lesion_id','split','skin_tone','dark','diagnosis','n_images']+[f'z{i}' for i in range(768)]; e=pd.DataFrame(emb,columns=cols); e.to_csv(ROOT/'embeddings.csv',index=False); zc=cols[6:]; tr=e[e.split=='train']; te=e[e.split=='test']; Xtr=tr[zc].to_numpy(np.float32); Xte=te[zc].to_numpy(np.float32); gtr=tr.dark.to_numpy(int); gte=te.dark.to_numpy(int); ytr=tr.diagnosis.to_numpy(); yte=te.diagnosis.to_numpy(); ast=lambda y,s:max(roc_auc_score(y,s),1-roc_auc_score(y,s))
+          rl=LogisticRegression(max_iter=2000).fit(Xtr,gtr); rq=QuadraticDiscriminantAnalysis(reg_param=.1).fit(Xtr,gtr); ry=LogisticRegression(max_iter=2000).fit(Xtr,ytr); er=LeaceEraser.fit(torch.from_numpy(Xtr),torch.from_numpy(gtr).long()); Ztr=er(torch.from_numpy(Xtr)).numpy(); Zte=er(torch.from_numpy(Xte)).numpy(); pl=LogisticRegression(max_iter=2000).fit(Ztr,gtr); pq=QuadraticDiscriminantAnalysis(reg_param=.1).fit(Ztr,gtr); py=LogisticRegression(max_iter=2000).fit(Ztr,ytr); sl=rl.predict_proba(Xte)[:,1]; spl=pl.predict_proba(Zte)[:,1]; sq=rq.predict_proba(Xte)[:,1]; spq=pq.predict_proba(Zte)[:,1]; pry=ry.predict(Xte); ppy=py.predict(Zte)
+          s={'status':'P1_FULL_CANONICAL_LEACE_BATCHED','dataset':'MILK10k','bundle_sha256':bundle_sha,'n_lesions':len(e),'n_images_embedded':int(e.n_images.sum()),'n_train':len(tr),'n_test':len(te),'d':768,'dark_test':int(gte.sum()),'light_test':int((gte==0).sum()),'raw_linear_auc_star':ast(gte,sl),'post_linear_auc_star':ast(gte,spl),'raw_nonlinear_auc_star':ast(gte,sq),'post_nonlinear_auc_star':ast(gte,spq),'raw_task_macro_f1':f1_score(yte,pry,average='macro'),'post_task_macro_f1':f1_score(yte,ppy,average='macro'),'raw_task_balanced_accuracy':balanced_accuracy_score(yte,pry),'post_task_balanced_accuracy':balanced_accuracy_score(yte,ppy),'post_mean_gap_norm':float(np.linalg.norm(Zte[gte==1].mean(0)-Zte[gte==0].mean(0))),'split_seed':42,'device':device,'runtime_seconds':time.time()-t0,'environment':{'python':platform.python_version(),'numpy':np.__version__,'torch':torch.__version__}}
+          s['delta_linear_auc_star']=s['post_linear_auc_star']-s['raw_linear_auc_star']; s['delta_nonlinear_auc_star']=s['post_nonlinear_auc_star']-s['raw_nonlinear_auc_star']; s['delta_task_macro_f1']=s['post_task_macro_f1']-s['raw_task_macro_f1']
+          json.dump(s,open(OUT/'summary.json','w'),indent=2); json.dump({'embedding_sha256':hashlib.sha256((ROOT/'embeddings.csv').read_bytes()).hexdigest(),'rows':len(e),'cols':len(e.columns)},open(OUT/'embedding_manifest.json','w'),indent=2); print(json.dumps(s,indent=2))
+          PY
+          python /tmp/m2_p1_batched.py
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M2_P1_MILK10K_BATCHED
+          path: m2_p1_batched_evidence/
+          if-no-files-found: error
