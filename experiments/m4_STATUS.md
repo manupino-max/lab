@@ -1,0 +1,1 @@
+M4 is executed by GitHub Actions. Numerical results must be read from the completed workflow artifact; no values are assumed in advance.
