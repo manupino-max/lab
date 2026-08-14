@@ -1,0 +1,27 @@
+name: M3 LASSI-GLOW programming smoke
+
+on:
+  push:
+    paths:
+      - 'm3_lassi_glow/**'
+      - '.github/workflows/m3-lassi-glow-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r m3_lassi_glow/requirements.txt
+      - name: Environment smoke
+        run: python m3_lassi_glow/colab/01_environment_smoke.py
+      - name: Synthetic representation probe
+        run: python m3_lassi_glow/colab/02_synthetic_representation_probe.py
