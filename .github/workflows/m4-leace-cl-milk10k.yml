@@ -1,0 +1,30 @@
+name: M4 LEACE-CL MILK10k
+
+on:
+  push:
+    paths:
+      - 'experiments/m4_leace_cl_milk10k.py'
+      - '.github/workflows/m4-leace-cl-milk10k.yml'
+  workflow_dispatch:
+
+jobs:
+  leace-cl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy==1.26.4' 'scipy==1.13.1' 'scikit-learn==1.5.2' 'torch==2.4.1' 'transformers==4.45.2' 'pandas==2.2.3' 'pillow==10.4.0' 'requests==2.32.3' 'beautifulsoup4==4.12.3'
+      - name: Run exact unconditional LEACE-CL test
+        run: python experiments/m4_leace_cl_milk10k.py
+      - name: Upload auditable evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M4_LEACE_CL_MILK10k-${{ github.sha }}
+          path: m4_leace_cl_evidence/
+          if-no-files-found: error
