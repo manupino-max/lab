@@ -4,8 +4,8 @@ Exploratory only until executed and audited. Uses the canonical
 `concept_erasure` implementation rather than a hand-written projection.
 Outputs are deliberately separate from historical experiment files.
 
-The harness now records baseline-vs-LEACE protected leakage, because an
-absolute post-LEACE AUC* is not enough to quantify mitigation effect.
+The harness records baseline-vs-LEACE protected leakage because an absolute
+post-LEACE AUC* is not enough to quantify mitigation effect.
 """
 from pathlib import Path
 import csv, json, platform
@@ -41,13 +41,11 @@ def probe_metrics(x_train, g_train, x_test, g_test, y_train, y_test):
     lin = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(x_train, g_train)
     rbf = make_pipeline(StandardScaler(), SVC(kernel="rbf", probability=True)).fit(x_train, g_train)
     task = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(x_train, y_train)
-
     p_lin = lin.predict_proba(x_test)[:, 1]
     p_rbf = rbf.predict_proba(x_test)[:, 1]
     p_task = task.predict_proba(x_test)[:, 1]
     pred_lin = (p_lin >= 0.5).astype(int)
     pred_task = (p_task >= 0.5).astype(int)
-
     return {
         "linear_auc_oriented": oriented_auc(g_test, p_lin),
         "linear_balanced_accuracy": balanced_accuracy_score(g_test, pred_lin),
@@ -59,22 +57,16 @@ def probe_metrics(x_train, g_train, x_test, g_test, y_train, y_test):
 
 def run(seed=42):
     from concept_erasure import LeaceEraser
-
     x, g, y = make_data(seed)
     tr, te = train_test_split(np.arange(len(g)), test_size=0.35,
                               random_state=seed, stratify=g)
-
-    # Fit probes on the training partition only, both before and after the
-    # canonical train-fitted LEACE transform. Test data remains untouched.
     raw = probe_metrics(x[tr], g[tr], x[te], g[te], y[tr], y[te])
-
     xt = torch.from_numpy(x[tr]).float()
     gt = torch.from_numpy(g[tr]).long()
     eraser = LeaceEraser.fit(xt, gt)
     ztr = eraser(xt).detach().numpy()
     zte = eraser(torch.from_numpy(x[te]).float()).detach().numpy()
     post = probe_metrics(ztr, g[tr], zte, g[te], y[tr], y[te])
-
     return {
         "seed": seed, "n": len(g), "d": x.shape[1],
         "raw_linear_auc_oriented": raw["linear_auc_oriented"],
