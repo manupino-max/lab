@@ -7,6 +7,7 @@ projection. Outputs are deliberately separate from historical experiment files.
 from pathlib import Path
 import csv, json
 import numpy as np
+import torch
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, balanced_accuracy_score, roc_auc_score
 from sklearn.model_selection import train_test_split
@@ -34,15 +35,16 @@ def oriented_auc(y, score):
 
 
 def run(seed=42):
-    # Import at execution time so missing dependency is explicit rather than masked.
     from concept_erasure import LeaceEraser
 
     x, g, y = make_data(seed)
     tr, te = train_test_split(np.arange(len(g)), test_size=0.35,
                               random_state=seed, stratify=g)
-    eraser = LeaceEraser.fit(x[tr], g[tr])
-    ztr = eraser(x[tr])
-    zte = eraser(x[te])
+    xt = torch.from_numpy(x[tr]).float()
+    gt = torch.from_numpy(g[tr]).long()
+    eraser = LeaceEraser.fit(xt, gt)
+    ztr = eraser(xt).detach().numpy()
+    zte = eraser(torch.from_numpy(x[te]).float()).detach().numpy()
 
     lin = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(ztr, g[tr])
     rbf = make_pipeline(StandardScaler(), SVC(kernel="rbf", probability=True)).fit(ztr, g[tr])
@@ -51,6 +53,7 @@ def run(seed=42):
     p_lin = lin.predict_proba(zte)[:, 1]
     p_rbf = rbf.predict_proba(zte)[:, 1]
     p_task = task.predict_proba(zte)[:, 1]
+    pred_lin = (p_lin >= 0.5).astype(int)
     pred_task = (p_task >= 0.5).astype(int)
 
     return {
@@ -58,7 +61,7 @@ def run(seed=42):
         "n": len(g),
         "d": x.shape[1],
         "linear_auc_oriented": oriented_auc(g[te], p_lin),
-        "linear_balanced_accuracy": balanced_accuracy_score(g[te], (p_lin >= 0.5).astype(int)),
+        "linear_balanced_accuracy": balanced_accuracy_score(g[te], pred_lin),
         "nonlinear_auc_oriented": oriented_auc(g[te], p_rbf),
         "utility_auc": roc_auc_score(y[te], p_task),
         "utility_accuracy": accuracy_score(y[te], pred_task),
