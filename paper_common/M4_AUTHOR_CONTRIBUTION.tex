@@ -1,0 +1,32 @@
+% M4 substantive contribution to the common manuscript.
+% Intended to be integrated into SPRINGER_COMMON_DRAFT.tex after Methods/Results.
+
+\subsection{Geometric interpretation of protected separation}
+\label{sec:geometric-interpretation}
+The central geometric distinction of this study is between the \emph{contrast direction} between protected-group means and the \emph{full concept subspace} required for linear concept erasure. Let $d=\mu_1-\mu_0$. A construction based only on $d$ can remove a first-moment contrast, but it need not remove all directions through which the protected attribute is linearly recoverable. Conversely, canonical LEACE solves a broader least-squares erasure problem and should therefore remain the reference intervention when the scientific objective is linear concept removal rather than mean alignment.
+
+This distinction motivates the rank-one maximum-separation construction used here. With pooled within-group covariance $S_W$, the Fisher direction is $w=S_W^{-1}d$. Defining
+\begin{equation}
+P=\frac{dw^T}{w^Td}
+\end{equation}
+produces an operator satisfying $Pd=d$. The resulting transformation
+\begin{equation}
+T_\alpha(z)=z-\alpha P(z-\mu_f),\qquad \mu_f=\frac{\mu_0+\mu_1}{2},
+\end{equation}
+is therefore an \emph{unconditional} map: after fitting on training data, the same operator is applied to every observation, independently of its protected-group label. At full strength, the two fitted means coincide. This algebraic guarantee is exact, but it should not be confused with a guarantee of distributional equality or downstream fairness.
+
+\subsection{Why the negative geometric result matters}
+\label{sec:negative-geometric-result}
+The independent mean-line experiment is deliberately treated as a falsification experiment rather than as evidence for a preferred intervention strength. Protected AUC decreases monotonically along the tested trajectory, while the strongest endpoint reaches chance-level protected AUC. The predefined interior-optimum criterion is therefore not supported. This matters because a superficially attractive fairness--utility compromise can otherwise become a post-hoc selection rule.
+
+The same experiment provides a second falsification result. Full mean alignment reduces, but does not eliminate, the symmetric diagonal-Gaussian KL. Thus $\mu_0'=\mu_1'$ does not imply $p(Z\mid g=0)=p(Z\mid g=1)$. In practical terms, covariance and higher-order structure remain available to a sufficiently expressive discriminator. This is why the manuscript reports protected linear probes, nonlinear probes, distributional diagnostics, and downstream fairness separately rather than collapsing them into one ``bias removed'' score.
+
+\subsection{Decision rule for LEACE-CL}
+\label{sec:leace-cl-decision}
+LEACE-CL is not promoted as a superior replacement for canonical LEACE on the basis of its algebra alone. Its methodological value depends on an empirical comparison under a frozen real-data protocol. The comparison must use the same representation, train/validation/test split, seeds, downstream architecture, probe architecture, intervention budget, and metric definitions for both methods. No test-set protected labels may influence the fitted operator or the choice of $\alpha$.
+
+The decision rule is consequently asymmetric. If LEACE-CL demonstrates a reproducible improvement in the fairness--utility Pareto frontier, with uncertainty intervals and paired statistical tests supporting the difference, the paper may claim an algorithmic contribution. If it does not, the scientifically stronger interpretation is that LEACE-CL is a transparent geometric audit/intervention that exposes first-moment structure and clarifies what canonical concept erasure does and does not imply. In either case, the negative synthetic findings remain part of the evidence rather than being removed from the narrative.
+
+\subsection{Interpretive boundary}
+\label{sec:interpretive-boundary}
+The study therefore distinguishes four claims that are often conflated: (i) reduced protected recoverability by a specified probe; (ii) equality of selected representation moments; (iii) distributional indistinguishability under a specified discriminator or divergence; and (iv) downstream fairness under a specified task and metric. An intervention can improve one without improving all four. The paper's principal methodological recommendation is to report these quantities as separate axes of evidence and to state explicitly which one an intervention is designed to affect.
