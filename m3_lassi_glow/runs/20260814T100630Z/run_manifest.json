@@ -1,0 +1,13 @@
+{
+  "run_id": "20260814T100630Z",
+  "status": "NO_DATA_RUNTIME_ONLY",
+  "scope": "M3 public exploratory lab",
+  "python": "3.13.5",
+  "platform": "Linux-6.18.35-x86_64-with-glibc2.41",
+  "data_root": null,
+  "dataset_policy": "official ISIC acquisition only; no redistribution by this lab",
+  "thesis_status": "NOT_THESIS_VALIDATED",
+  "execution_note": "The public LAB orchestrator was executed locally from the repository code content. The runtime environment had no mounted MILK10k/ISIC data, so no image processing or scientific result was produced. This is an environment/provenance check only.",
+  "result_class": "BLOCKED_BY_DATA",
+  "next_stage": "E2 — official ISIC acquisition and integrity validation"
+}
