@@ -4,7 +4,7 @@ Exploratory only until executed and audited. Uses the canonical
 `concept_erasure` implementation rather than a hand-written projection.
 Outputs are deliberately separate from historical experiment files.
 
-The harness now records baseline-vs-LEACE protected leakage, because an
+The harness records baseline-vs-LEACE protected leakage, because an
 absolute post-LEACE AUC* is not enough to quantify mitigation effect.
 """
 from pathlib import Path
@@ -64,8 +64,6 @@ def run(seed=42):
     tr, te = train_test_split(np.arange(len(g)), test_size=0.35,
                               random_state=seed, stratify=g)
 
-    # Fit probes on the training partition only, both before and after the
-    # canonical train-fitted LEACE transform. Test data remains untouched.
     raw = probe_metrics(x[tr], g[tr], x[te], g[te], y[tr], y[te])
 
     xt = torch.from_numpy(x[tr]).float()
