@@ -1,0 +1,1 @@
+For g in {0,1}: z'_g(alpha,lambda)=z_g+alpha*(m_lambda-mu_g), m_lambda=lambda*mu0+(1-lambda)*mu1. At lambda=.5 and alpha=1 both empirical means equal the midpoint. This is a mean-transport test, not full LEACE and not full Gaussian distribution matching.
