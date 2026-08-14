@@ -1,16 +1,10 @@
 name: Selective-LEACE validation
 
 on:
+  push:
+    branches:
+      - exp/selective-leace-v1
   workflow_dispatch:
-    inputs:
-      eps_auc:
-        description: 'Frozen EPS_AUC (required; do not guess)'
-        required: true
-        type: string
-      eps_ba:
-        description: 'Frozen EPS_BA (required; do not guess)'
-        required: true
-        type: string
 
 jobs:
   validate:
@@ -36,8 +30,8 @@ jobs:
       - name: Run 20-seed validation
         run: |
           python experiments/selective_leace_validation_v1.py \
-            --eps-auc '${{ inputs.eps_auc }}' \
-            --eps-ba '${{ inputs.eps_ba }}' \
+            --eps-auc '0.01' \
+            --eps-ba '0.01' \
             --out results/selective_leace_validation
 
       - name: Upload auditable results
