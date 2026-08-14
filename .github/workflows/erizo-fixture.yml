@@ -48,7 +48,7 @@ jobs:
           from pathlib import Path
           p = Path('experiments/erizo-ci-fixture/results/fixture_results.csv')
           rows = list(csv.DictReader(p.open(encoding='utf-8')))
-          assert len(rows) == 32, len(rows)
+          assert len(rows) == 64, len(rows)
           print(f'validated {len(rows)} rows')
           PY
 
