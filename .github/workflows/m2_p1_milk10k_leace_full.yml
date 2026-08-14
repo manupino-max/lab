@@ -1,0 +1,112 @@
+name: M2 P1 MILK10k full LEACE baseline
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m2_p1_milk10k_leace_full.yml'
+  workflow_dispatch:
+
+jobs:
+  p1-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy==1.26.4' 'scipy==1.13.1' 'scikit-learn==1.5.2' 'torch==2.4.1' 'concept-erasure==0.2.1' 'transformers==4.45.2' 'pandas==2.2.3' 'pillow==10.4.0' 'requests==2.32.3' 'beautifulsoup4==4.12.3'
+      - name: Execute frozen full real-data LEACE baseline
+        run: |
+          cat > /tmp/m2_p1_full.py <<'PY'
+          import json,hashlib,platform,zipfile,os,shutil,time
+          from pathlib import Path
+          import numpy as np,pandas as pd,requests,torch
+          from bs4 import BeautifulSoup
+          from PIL import Image
+          from transformers import AutoImageProcessor,AutoModel
+          from concept_erasure import LeaceEraser
+          from sklearn.linear_model import LogisticRegression
+          from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
+          from sklearn.metrics import roc_auc_score, f1_score, balanced_accuracy_score
+          
+          ROOT=Path('/tmp/m2_p1'); ROOT.mkdir(parents=True,exist_ok=True)
+          ZIP=ROOT/'milk10k.zip'; IMGS=ROOT/'images'; OUT=Path('m2_p1_evidence'); OUT.mkdir(parents=True,exist_ok=True)
+          URL='https://isic-archive.s3.amazonaws.com/dois/10.34970-648456/milk10k.zip'
+          r=requests.get(URL,timeout=600); r.raise_for_status(); ZIP.write_bytes(r.content)
+          zip_sha=hashlib.sha256(ZIP.read_bytes()).hexdigest()
+          with zipfile.ZipFile(ZIP) as z: z.extractall(IMGS)
+          
+          # Discover official CSV metadata from the ISIC DOI page.
+          page='https://api.isic-archive.com/doi/milk10k/'
+          html=requests.get(page,timeout=60).text; soup=BeautifulSoup(html,'html.parser')
+          links=[]
+          for a in soup.find_all('a'):
+              u=a.get('href') or ''
+              if 'isic-archive.s3.amazonaws.com' in u and u.lower().split('?')[0].endswith('.csv'): links.append(u)
+          links=list(dict.fromkeys(links)); assert links
+          frames=[]
+          for i,u in enumerate(links):
+              rr=requests.get(u,timeout=180); rr.raise_for_status(); p=ROOT/f'source_{i}.csv'; p.write_bytes(rr.content); frames.append(pd.read_csv(p))
+          def norm(s):
+              import re; return re.sub(r'[^a-z0-9]+','_',str(s).lower()).strip('_')
+          def col(df,name):
+              t=norm(name)
+              return next((c for c in df.columns if norm(c)==t),None)
+          tone_df=next(d for d in frames if col(d,'skin_tone_class'))
+          tone_l=col(tone_df,'lesion_id'); tone_c=col(tone_df,'skin_tone_class')
+          tone=tone_df[[tone_l,tone_c]].copy(); tone['_tone']=pd.to_numeric(tone[tone_c],errors='coerce'); tone=tone.drop_duplicates(tone_l); assert tone['_tone'].notna().all()
+          gt=None
+          names={'akiec','bcc','ben_oth','bkl','df','inf','mal_oth','mel','nv','sccka','vasc'}
+          for d in frames:
+              cs=[c for c in d.columns if norm(c) in names]
+              if len(cs)>=5:
+                  g=d.copy(); gl=col(g,'lesion_id'); g=g[[gl]+cs].copy()
+                  for c in cs:g[c]=pd.to_numeric(g[c],errors='coerce').fillna(0)
+                  assert np.allclose(g[cs].sum(1).to_numpy(),1.0)
+                  g['_diagnosis_label']=g[cs].idxmax(1); gt=g[[gl,'_diagnosis_label']]; break
+          base=next(d for d in frames if col(d,'isic_id') and col(d,'lesion_id'))
+          bl=col(base,'lesion_id'); bi=col(base,'isic_id')
+          df=base.merge(tone[[tone_l,'_tone']],left_on=bl,right_on=tone_l,how='left',validate='many_to_one').merge(gt,left_on=bl,right_on=tone_l,how='left',validate='many_to_one')
+          df['dark']=(df['_tone']<=2).astype(int)
+          lesion=pd.DataFrame({'lesion_id':df[bl].astype(str),'skin_tone':df['_tone'],'dark':df['dark'],'diagnosis':df['_diagnosis_label'].astype(str)}).drop_duplicates('lesion_id')
+          keys=np.array(sorted(lesion.lesion_id.unique()),dtype=object); rng=np.random.default_rng(42); rng.shuffle(keys); n=len(keys); ntr=int(.70*n); nva=int(.15*n)
+          split={k:('train' if i<ntr else 'val' if i<ntr+nva else 'test') for i,k in enumerate(keys)}; lesion['split']=lesion.lesion_id.map(split); df['split']=df[bl].astype(str).map(split); assert len(lesion)==5240
+          # image map
+          image_map={}
+          for p in IMGS.rglob('*'):
+              if p.is_file() and p.suffix.lower() in {'.jpg','.jpeg','.png','.webp'}:
+                  stem=p.stem.casefold(); image_map.setdefault(stem,p); 
+                  for s in ('_clinical','_dermoscopic','_dermoscopy'):
+                      if stem.endswith(s): image_map.setdefault(stem[:-len(s)],p)
+          proc=AutoImageProcessor.from_pretrained('facebook/dinov2-base'); model=AutoModel.from_pretrained('facebook/dinov2-base').eval(); device='cuda' if torch.cuda.is_available() else 'cpu'; model.to(device)
+          rows=[]; t0=time.time()
+          for j,(lid,g) in enumerate(df.groupby(bl,sort=True),1):
+              ims=[]
+              for iid in g[bi].astype(str).drop_duplicates(): ims.append(Image.open(image_map[iid.casefold()]).convert('RGB'))
+              with torch.no_grad():
+                  inp=proc(images=ims,return_tensors='pt').to(device); z=model(**inp).last_hidden_state[:,0].cpu().numpy().mean(0)
+              rows.append((str(lid),str(g['split'].iloc[0]),float(g['_tone'].iloc[0]),int(g['dark'].iloc[0]),str(g['_diagnosis_label'].iloc[0]),len(ims),*z.tolist()))
+              if j%250==0: print('embedded',j,'elapsed',round(time.time()-t0,1))
+          cols=['lesion_id','split','skin_tone','dark','diagnosis','n_images']+[f'z{i}' for i in range(768)]; emb=pd.DataFrame(rows,columns=cols); emb.to_csv(ROOT/'embeddings.csv',index=False)
+          zcols=cols[6:]; tr=emb[emb.split=='train']; te=emb[emb.split=='test']; Xtr=tr[zcols].to_numpy(np.float32); Xte=te[zcols].to_numpy(np.float32); gtr=tr.dark.to_numpy(int); gte=te.dark.to_numpy(int); ytr=tr.diagnosis.to_numpy(); yte=te.diagnosis.to_numpy()
+          def ast(y,s):
+              a=roc_auc_score(y,s); return max(a,1-a)
+          raw_l=LogisticRegression(max_iter=2000).fit(Xtr,gtr); raw_q=QuadraticDiscriminantAnalysis(reg_param=.1).fit(Xtr,gtr); raw_y=LogisticRegression(max_iter=2000).fit(Xtr,ytr)
+          er=LeaceEraser.fit(torch.from_numpy(Xtr),torch.from_numpy(gtr).long()); Ztr=er(torch.from_numpy(Xtr)).numpy(); Zte=er(torch.from_numpy(Xte)).numpy()
+          post_l=LogisticRegression(max_iter=2000).fit(Ztr,gtr); post_q=QuadraticDiscriminantAnalysis(reg_param=.1).fit(Ztr,gtr); post_y=LogisticRegression(max_iter=2000).fit(Ztr,ytr)
+          sl=raw_l.predict_proba(Xte)[:,1]; spl=post_l.predict_proba(Zte)[:,1]; sq=raw_q.predict_proba(Xte)[:,1]; spq=post_q.predict_proba(Zte)[:,1]; pry=raw_y.predict(Xte); ppy=post_y.predict(Zte)
+          summary={'status':'P1_FULL_CANONICAL_LEACE','dataset':'MILK10k','dataset_bundle_sha256':zip_sha,'n_lesions':int(len(emb)),'n_train':int(len(tr)),'n_test':int(len(te)),'d':768,'skin_tone_values':sorted(lesion.skin_tone.unique().tolist()),'test_dark':int(gte.sum()),'test_light':int((gte==0).sum()),'raw_linear_auc_star':float(ast(gte,sl)),'post_linear_auc_star':float(ast(gte,spl)),'raw_nonlinear_auc_star':float(ast(gte,sq)),'post_nonlinear_auc_star':float(ast(gte,spq)),'raw_task_macro_f1':float(f1_score(yte,pry,average='macro')),'post_task_macro_f1':float(f1_score(yte,ppy,average='macro')),'raw_task_balanced_accuracy':float(balanced_accuracy_score(yte,pry)),'post_task_balanced_accuracy':float(balanced_accuracy_score(yte,ppy)),'post_mean_gap_norm':float(np.linalg.norm(Zte[gte==1].mean(0)-Zte[gte==0].mean(0))),'source_manifest_seed':42,'device':device,'runtime_seconds':time.time()-t0,'source_code_sha':'b9287ea20bb03e69313d60d292ec0dd75e4d0678','environment':{'python':platform.python_version(),'torch':torch.__version__,'numpy':np.__version__}}
+          summary['delta_linear_auc_star']=summary['post_linear_auc_star']-summary['raw_linear_auc_star']; summary['delta_nonlinear_auc_star']=summary['post_nonlinear_auc_star']-summary['raw_nonlinear_auc_star']; summary['delta_task_macro_f1']=summary['post_task_macro_f1']-summary['raw_task_macro_f1']
+          (OUT/'summary.json').write_text(json.dumps(summary,indent=2)); (OUT/'embedding_manifest.json').write_text(json.dumps({'sha256':hashlib.sha256((ROOT/'embeddings.csv').read_bytes()).hexdigest(),'rows':len(emb),'cols':len(emb.columns)},indent=2)); print(json.dumps(summary,indent=2))
+          PY
+          python /tmp/m2_p1_full.py
+      - name: Upload M2 evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M2_P1_MILK10K_FULL_LEACE
+          path: m2_p1_evidence/
+          if-no-files-found: error
