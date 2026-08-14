@@ -1,0 +1,1 @@
+Expected artifact files: summary.json, curve.csv, gaussian_curve.csv. Numerical claims are only valid once summary.json is produced by the completed workflow.
