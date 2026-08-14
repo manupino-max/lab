@@ -1,0 +1,1 @@
+Fairness primary: protected-group ROC-AUC of a freshly fitted linear probe; lower is better, with 0.5 ideal. Utility primary: task macro-F1; higher is better. Secondary utility: balanced accuracy and accuracy. Geometric: Euclidean mean gap. Gaussian diagnostic: symmetric KL for diagonal Gaussian fits.
