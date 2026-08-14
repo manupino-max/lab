@@ -1,0 +1,35 @@
+name: M2 P0 canonical LEACE matrix 20x5x5
+
+on:
+  push:
+    paths:
+      - '.github/workflows/m2_p0_canonical_matrix_run.yml'
+  workflow_dispatch:
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout execution bridge branch
+        uses: actions/checkout@v4
+        with:
+          ref: m2-p0-canonical-matrix
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned canonical stack
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'numpy==1.26.4' 'scipy==1.13.1' 'scikit-learn==1.5.2' 'torch==2.4.1' 'concept-erasure==0.2.1'
+      - name: Environment
+        run: pip freeze | tee environment.txt
+      - name: Execute matrix
+        run: python experiments/leace_canonical_replication.py
+      - name: Upload matrix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M2_P0_CANONICAL_20SEED_DINTENSITY
+          path: |
+            experiments/results/leace_canonical_replication/
+            environment.txt
