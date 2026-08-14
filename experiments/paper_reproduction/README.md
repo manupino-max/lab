@@ -13,3 +13,7 @@ These suites re-run the three candidate-paper experiments from scratch in the pu
 Each suite fixes its configuration, seed list, and primary metric in code. No private repository checkout is required for the reference implementations. If a private implementation is later used for cross-checking, only aggregate outputs may be exported.
 
 The public lab is a reproduction environment, not the source of truth for unpublished claims. Full scientific records remain in the private research repositories.
+
+## GMR-B governance note
+
+`P01_GMRB` is currently a public reference reproduction/smoke suite. It is **not** treated as an exact implementation-equivalence proof for the investigator GMR-B/DGTLB scientific core. Exact M1 validation remains in the private `-latent-research` repository until the investigator implementation passes the frozen adapter equivalence tests. See `GMRB_AUDIT_2026-08-14.md` for the non-destructive audit.
