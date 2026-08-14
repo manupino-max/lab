@@ -5,6 +5,10 @@ on:
     paths:
       - 'experiments/leace_canonical_replication.py'
       - '.github/workflows/m4-leace-canonical-replication.yml'
+  pull_request:
+    paths:
+      - 'experiments/leace_canonical_replication.py'
+      - '.github/workflows/m4-leace-canonical-replication.yml'
   workflow_dispatch:
 
 jobs:
