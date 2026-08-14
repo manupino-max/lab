@@ -1,0 +1,35 @@
+name: M4 Canonical LEACE Replication
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'experiments/leace_canonical_replication.py'
+      - '.github/workflows/m4-leace-replication.yml'
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install scientific dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install numpy scikit-learn torch concept-erasure
+      - name: Compile runner
+        run: python -m py_compile experiments/leace_canonical_replication.py
+      - name: Execute canonical LEACE replication
+        run: python experiments/leace_canonical_replication.py
+      - name: Upload M4 raw results
+        uses: actions/upload-artifact@v4
+        with:
+          name: m4-leace-canonical-${{ github.sha }}
+          path: experiments/results/leace_canonical_replication/
+          if-no-files-found: error
