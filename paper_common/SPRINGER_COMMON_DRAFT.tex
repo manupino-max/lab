@@ -1,164 +1,221 @@
 \documentclass[pdflatex,sn-mathphys-num]{sn-jnl}
-
 \jyear{2026}
-
 \theoremstyle{thmstyleone}
 \newtheorem{proposition}{Proposition}
-
 \raggedbottom
-
-\title[Auditing linear concept erasure]{Auditing Linear Concept Erasure for Fair Representations: Mean Equalization, Maximum-Separation Interventions, and Fairness--Utility Trade-offs}
-
+\title[Auditing linear concept erasure]{Auditing Linear Concept Erasure for Fair Representations: Canonical LEACE, Selective Interventions, and Geometric Mean Equalization}
 \author*[1]{\fnm{Author M2}\orcid{0000-0000-0000-0000}}\email{author-m2@example.org}
 \author[1]{\fnm{Author M4}\orcid{0000-0000-0000-0000}}\email{author-m4@example.org}
-
 \affil*[1]{\orgdiv{Research Group}, \orgname{Institution}, \orgaddress{\city{City}, \country{Country}}}
-
-\abstract{Linear concept erasure is increasingly used to reduce recoverable protected information from learned representations, but fairness evaluation can conflate removal of a predictive direction with equality of distributions or with downstream fairness. We present a controlled audit of canonical LEAst-squares Concept Erasure (LEACE), sparse/localized interventions, affine mean transport, and a rank-one maximum-separation intervention (LEACE-CL). The latter is defined from the empirical group contrast $d=\mu_1-\mu_0$, the pooled within-group covariance $S_W$, the Fisher direction $w=S_W^{-1}d$, and $P=dw^T/(w^Td)$, yielding the unconditional map $T_\alpha(z)=z-\alpha P(z-\mu_f)$ with $\mu_f=(\mu_0+\mu_1)/2$. We audit independent synthetic tests using frozen train/test protocols and retain negative findings. Canonical LEACE reduces linear protected AUC from 0.7296 to 0.5534 and nonlinear protected AUC from 0.7218 to 0.5573 in a 500-configuration clean-room matrix, while task AUC changes by only +0.0006. In a 20-seed sparse Pareto experiment, full LEACE reaches protected AUC 0.5000 with task AUC 0.8607 versus 0.8597 at baseline; a 60\% sparse intervention reaches protected AUC 0.7790 while preserving task AUC. An independent mean-line experiment confirms that full mean equalization can reduce protected predictability, but falsifies the stronger hypothesis of a generic interior optimum and shows that equal means do not imply distributional indistinguishability. The paper therefore treats LEACE as the canonical linear-erasure baseline, LEACE-CL as a geometrically motivated diagnostic/intervention, and fairness as a multi-objective evaluation rather than a single representation statistic. The real-data MILK10k LEACE-CL gate is deliberately marked pending until its auditable workflow artifact is complete.}
-
-\keywords{fair representation learning, concept erasure, LEACE, fairness, protected attributes, linear probing, representation auditing, Pareto trade-off}
-
+\abstract{Fair representation learning requires separating protected-information recoverability from downstream fairness and from distributional equality. We report a joint, reproducibility-first audit of canonical LEACE, sparse/localized LEACE interventions, an independent mean-line intervention, and a rank-one maximum-separation construction (LEACE-CL). LEACE-CL is defined from $d=\mu_1-\mu_0$, $w=S_W^{-1}d$, $P=dw^T/(w^Td)$, and $T_\alpha(z)=z-\alpha P(z-\mu_f)$ with $\mu_f=(\mu_0+\mu_1)/2$. The map is unconditional at application time and satisfies $Pd=d$, hence it exactly equalizes the fitted group means at full strength. The completed clean-room experiments show substantial reductions in protected predictability with little change in task utility, but also provide important negative evidence: equal means do not imply equal distributions, and the preregistered generic interior-optimum hypothesis is not supported. A 500-configuration canonical LEACE matrix reduces linear protected AUC from 0.7296 to 0.5534 and nonlinear protected AUC from 0.7218 to 0.5573 while task AUC changes from 0.7573 to 0.7579. A 20-seed sparse experiment yields protected AUC 0.5000 for full LEACE and identifies a less aggressive 60\% intervention with protected AUC 0.7790 and essentially unchanged task AUC. An independent mean-line test reduces protected AUC from 0.9447 to 0.5000 at full strength, but the test-set mean gap and Gaussian KL remain non-zero. Real-data MILK10k gates are kept separate and are not promoted until their artifacts pass the same audit chain.}
+\keywords{fair representation learning, concept erasure, LEACE, protected attributes, linear probing, fairness--utility trade-off, representation auditing}
 \maketitle
 
-\section{Introduction} % Lead: M4; support: M2
-Learned representations can encode protected attributes even when those attributes are not explicit model inputs. This creates a methodological distinction between \emph{representation-level recoverability}, \emph{downstream task fairness}, and \emph{distributional equality}. A representation may contain less linearly recoverable protected information without satisfying demographic parity, while two groups may have equal empirical means but remain distinguishable through covariance, nonlinear structure, or higher-order statistics.
+\section{Introduction} % M4 lead; M2 support
+Learned representations frequently retain information about protected variables even when those variables are not explicitly supplied to a downstream classifier. The scientific question is not simply whether such information exists, but whether an intervention changes recoverability, downstream group outcomes, or both. These are different properties. A representation can encode a protected attribute without producing a measured demographic-parity violation; conversely, a representation can have low linear protected predictability while remaining distinguishable by nonlinear probes.
 
-Linear concept erasure provides a tractable setting in which these distinctions can be studied precisely. LEACE provides a closed-form solution that removes a target concept from a representation while controlling representational change \cite{belrose2023leace}. Earlier linear erasure work likewise established that removing a single intuitive ``bias direction'' is generally insufficient to guarantee that a concept is unrecoverable \cite{ravfogel2020inlp,ravfogel2022lace}. Recent work further shows that the estimator used to identify a concept subspace affects containment, disentanglement, and generalization \cite{naowarat2026framework}.
+Linear concept erasure offers a controlled setting for studying these distinctions. INLP iteratively removes linear predictive directions \cite{ravfogel2020inlp}; LACE formulates linear concept erasure as an adversarial objective \cite{ravfogel2022lace}; LEACE provides a closed-form least-squares solution \cite{belrose2023leace}. Our study does not redefine canonical LEACE. Instead, it asks how far simpler geometric interventions can reproduce useful effects and where their stronger interpretations fail.
 
-This work asks a narrower question: \emph{what can be concluded, and what cannot be concluded, when a fairness intervention is defined geometrically from the separation of protected groups?} We construct an auditable comparison between canonical LEACE, sparse/localized variants, mean-line transport, and a rank-one maximum-separation intervention that we call LEACE-CL in this experimental framework. The goal is not to replace canonical LEACE or to claim a universal fairness metric. Instead, the goal is to determine which geometric claims survive independent falsification tests.
+The paper has four principal experimental questions. First, does canonical LEACE reduce protected recoverability while preserving task utility in an independently generated clean-room benchmark? Second, can selective or sparse intervention expose a useful fairness--utility frontier without outperforming full erasure? Third, does mean equalization behave as predicted in an independent synthetic construction? Fourth, can a maximum-separation rank-one operator provide an auditable geometric intervention whose exact algebraic property is useful without being mistaken for distributional fairness? A fifth selective experiment tests whether a very small fixed intervention budget can be localized without test-set tuning.
 
-Our contributions are:
-\begin{enumerate}
-\item an explicit separation between mean equalization, linear concept erasure, and downstream fairness;
-\item a train-only, unconditional maximum-separation intervention $T_\alpha$ and its exact mean-preservation property;
-\item a joint audit of independent synthetic experiments with fixed seeds, held-out evaluation, explicit falsification criteria, and archived workflow artifacts;
-\item a fairness--utility analysis showing both successful reductions in protected predictability and negative results against stronger hypotheses; and
-\item a reproducibility-first manuscript/evidence protocol that excludes temporary or non-canonical implementations from LEACE claims.
-\end{enumerate}
+We deliberately report positive and negative findings together. The experimental record is maintained through frozen specifications, train-only fitting, held-out evaluation, deterministic seeds, workflow identifiers, archived outputs, and explicit promotion states.
 
-\section{Related work} % Lead: M2; support: M4
-\subsection{Linear concept erasure}
-INLP iteratively removes directions that support linear prediction of a protected concept \cite{ravfogel2020inlp}. LACE formulates linear concept erasure as a maximin problem and derives tractable solutions \cite{ravfogel2022lace}. LEACE instead gives a closed-form least-squares concept erasure operator and provides guarantees against linear recovery under its assumptions \cite{belrose2023leace}. These methods motivate treating canonical LEACE as a reference rather than as an interchangeable name for any projection constructed from group means.
+\section{Related work} % M2 lead; M4 support
+\subsection{Concept erasure and protected information}
+INLP, LACE, and LEACE establish different formulations of linear concept removal. The central methodological issue is that a named ``bias direction'' is not automatically equivalent to a concept-erasure operator. LEACE is therefore used as the canonical reference, while geometric constructions are evaluated as separate interventions.
 
-\subsection{Fair representation learning}
-Fairness interventions are commonly evaluated using demographic parity, equal opportunity, equalized odds, predictive performance, and calibration. These objectives need not agree. Consequently, our evaluation reports representation-level protected predictability separately from task-level utility and group-conditioned outcome gaps.
+\subsection{Fairness evaluation}
+Representation-level probes and downstream fairness metrics answer different questions. We consequently report protected linear AUC, nonlinear probe AUC, balanced accuracy, task AUC and, where the data permit, group-conditioned outcome gaps. A reduction in protected AUC is never described as proof of demographic parity or equalized odds.
 
-\subsection{Concept-subspace auditing}
-Recent work emphasizes that concept-subspace estimators can differ in containment and disentanglement and that evaluation should separate the data used to estimate a subspace from the data used to train probes and report test performance \cite{naowarat2026framework}. This motivates our space/probe/test separation where applicable and our insistence that test protected labels are never used to construct an intervention.
+\subsection{Auditing concept subspaces}
+Recent work on concept representations emphasizes that subspace estimation, containment, and evaluation protocol affect conclusions. This motivates strict separation of fitting, probe training, and held-out testing. Protected test labels are never used to fit a transformation or select intervention strength.
 
-\section{Methods} % Lead: M4; support: M2
-\subsection{Notation and protocol}
-Let $Z\in\mathbb{R}^{n\times d}$ denote a learned representation, $g\in\{0,1\}$ a protected attribute, and $y$ the downstream task. All intervention parameters are fitted using training representations only. For each transformed representation, a fresh downstream model and protected probe are fitted on the transformed training data and evaluated on a held-out test set. No test label or protected attribute is used to select $\alpha$.
+\section{Methods} % M4 lead; M2 support
+\subsection{Common protocol}
+Let $Z\in\mathbb{R}^{n\times d}$ be a learned representation, $g\in\{0,1\}$ a protected attribute, and $y$ a task label. Transformation parameters are estimated from training data only. For each transformed representation, protected probes and task predictors are trained on transformed training data and evaluated on an untouched test split. Unless explicitly stated as a synthetic diagnostic, the intervention is not allowed to condition on $g$ at application time.
 
 \subsection{Canonical LEACE}
-We use the canonical implementation of \texttt{concept\_erasure} for the reference LEACE experiments. LEACE is treated as the baseline against which the proposed rank-one and sparse constructions are compared, rather than being reimplemented by a temporary manual projection.
+The reference implementation is \texttt{concept\_erasure.LeaceEraser}. Temporary manual projections are excluded from canonical LEACE claims. This became an explicit audit rule after inspection of the public reproducibility harness, where a helper named \texttt{leace()} implemented a single-vector least-squares projection rather than the canonical operator.
 
 \subsection{Mean-line intervention}
-For group means $\mu_0$ and $\mu_1$, define
+For group means $\mu_0$ and $\mu_1$, let $\mu_f=(\mu_0+\mu_1)/2$. The synthetic mean-line diagnostic translates each group according to
 \begin{equation}
-\mu_f(\lambda)=\lambda\mu_0+(1-\lambda)\mu_1.
+z'=z+\alpha(\mu_f-\mu_g),\qquad \alpha\in[0,1].
 \end{equation}
-The mean-line intervention translates each group toward $\mu_f$:
-\begin{equation}
-z'=z+\alpha(\mu_f-\mu_g),\quad \alpha\in[0,1].
-\end{equation}
-At $\alpha=1$ and $\lambda=1/2$, the training-set group means are equal. This is a first-moment operation and is not equivalent to LEACE.
+At full strength the empirical group means coincide. This is a first-moment operation and is not identified with LEACE.
 
 \subsection{Maximum-separation LEACE-CL}
 Let
 \begin{equation}
-d=\mu_1-\mu_0,
-\qquad
-w=S_W^{-1}d,
+d=\mu_1-\mu_0,\qquad w=S_W^{-1}d,
 \end{equation}
-where $S_W$ is the pooled within-group covariance with a small numerical ridge. Define
+where $S_W$ is the pooled within-group covariance with numerical regularization. Define
 \begin{equation}
 P=\frac{dw^T}{w^Td}.
 \end{equation}
-Then $Pd=d$, because $Pd=d(w^Td)/(w^Td)=d$. With the midpoint $\mu_f=(\mu_0+\mu_1)/2$, define
+Then $Pd=d$. With $\mu_f=(\mu_0+\mu_1)/2$ define
 \begin{equation}
-\boxed{T_\alpha(z)=z-\alpha P(z-\mu_f)}.
+T_\alpha(z)=z-\alpha P(z-\mu_f).
 \end{equation}
-The map is \emph{unconditional at application time}: once $P$ and $\mu_f$ have been fitted on training data, the same linear map is applied to every sample without observing its protected group.
+The same $T_\alpha$ is applied to every observation once fitted; no individual protected label is needed at application time. At $\alpha=1$, the fitted group means are mapped to the same midpoint. This is an exact first-moment statement, not a guarantee of distributional indistinguishability.
 
 \begin{proposition}[Mean equalization]
-For $\alpha=1$, the two transformed training means coincide at $\mu_f$.
+For $\alpha=1$, $T_1(\mu_0)=T_1(\mu_1)=\mu_f$.
 \end{proposition}
 \begin{proof}
-For $g\in\{0,1\}$, $T_1(\mu_g)=\mu_g-P(\mu_g-\mu_f)$. Since $\mu_1-\mu_0=d$ and $Pd=d$, the two group means are mapped to the same midpoint. The equality follows directly by applying the rank-one map to the two-point affine contrast.
+Because $\mu_1-\mu_0=d$ and $Pd=d$, the rank-one operator removes the full affine contrast between the two means. Substitution of either mean into $T_1$ therefore gives the midpoint $\mu_f$.
 \end{proof}
 
-\subsection{Evaluation metrics}
-Protected information is evaluated with orientation-invariant ROC-AUC, where values below 0.5 are reflected to $1-\mathrm{AUC}$. We additionally report protected balanced accuracy and, where applicable, nonlinear probe AUC. Downstream utility is measured with task ROC-AUC, accuracy, macro-F1, and balanced accuracy. For multiclass dermatology outcomes we report macro-averaged demographic-parity, equal-opportunity, and TNR gaps. Distributional equality is assessed separately using symmetric diagonal-Gaussian KL in the synthetic mean-line experiment.
+\subsection{Metrics and falsification}
+Protected recoverability is reported using orientation-invariant ROC-AUC and protected balanced accuracy, with an RBF probe as a nonlinear stress test. Task utility is reported using ROC-AUC and macro-F1 where available. Distributional equality is assessed separately in the Gaussian synthetic experiment. The interior-optimum hypothesis is rejected unless an interior $\alpha<1$ provides a fairness improvement while satisfying the predeclared utility tolerance and survives independent-seed replication.
 
-\subsection{Falsification rules}
-The strong interior-optimum hypothesis is rejected unless an interior $\alpha<1$ improves protected fairness while retaining task macro-F1 within the preregistered tolerance, with replication across independent seeds before promotion. Equality of group means alone is never accepted as evidence of distributional indistinguishability.
-
-\section{Experimental protocol and audit} % Lead: M2; support: M4
-\subsection{Evidence chain}
-Every promoted result is linked as
+\section{Experimental audit and status}
+The evidence chain is
 \begin{equation}
-\mathrm{EXP\_ID}\rightarrow\mathrm{RUN\_ID}\rightarrow\mathrm{configuration}\rightarrow\mathrm{outputs}\rightarrow\mathrm{metrics}\rightarrow\mathrm{statistics}\rightarrow\mathrm{falsification}\rightarrow\mathrm{status}.
+\texttt{experiment}\rightarrow\texttt{workflow/run}\rightarrow\texttt{configuration}\rightarrow\texttt{artifact}\rightarrow\texttt{metric}\rightarrow\texttt{falsification}\rightarrow\texttt{promotion state}.
 \end{equation}
-The joint audit covers the independent M4 mean-line test, the M4 LEACE-CL specification, the M2 canonical LEACE clean-room matrix, and the M2 sparse Pareto experiment. A historical temporary LEACE replacement is explicitly excluded from scientific claims because it does not implement the canonical operator.
 
 \begin{table}[t]
-\caption{Joint audit status.}
-\label{tab:audit}
-\begin{tabular}{p{0.18\linewidth}p{0.34\linewidth}p{0.20\linewidth}p{0.18\linewidth}}
+\caption{Joint M2/M4 experiment audit at manuscript freeze.}
+\label{tab:inventory}
+\begin{tabular}{p{0.16\linewidth}p{0.38\linewidth}p{0.18\linewidth}p{0.18\linewidth}}
 \toprule
-ID & Experiment & Execution status & Scientific status\\
+ID & Experiment & Result state & Paper state\\
 \midrule
-M4-T1 & Mean-line / Gaussian synthetic test & CI pass & Exploratory\\
-M4-T2 & LEACE-CL specification + MILK10k gate & real-data run pending at manuscript freeze & Pending\\
-M2-P0 & Canonical LEACE clean-room matrix, 500 configurations & CI pass & Exploratory\\
-M2-P1 & Sparse/localized LEACE Pareto, 20 seeds & CI pass & Exploratory\\
+M2-P0 & Canonical LEACE clean-room matrix, 500 configurations & positive & exploratory\\
+M2-P1 & Sparse/localized LEACE Pareto, 20 seeds & positive/Pareto & exploratory\\
+M2-P2 & Mode/support selective LEACE, $H=20$ & implementation complete; result gate & pending\\
+M2-R1 & MILK10k full canonical LEACE baseline & workflow success & artifact audit\\
+M4-T1 & Mean-line/Gaussian independent test & positive + negative falsification & exploratory\\
+M4-T2 & Unconditional LEACE-CL MILK10k & artifact gate & pending\\
+M4-A0 & Temporary public LEACE harness audit & negative methodological finding & excluded\\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\section{Results} % M2 leads canonical/sparse; M4 leads geometric tests
-\subsection{Canonical LEACE clean-room matrix}
-Across 500 configurations (20 seeds, five representation dimensions, five bias intensities), canonical LEACE reduced the mean orientation-invariant linear protected AUC from $0.7296$ to $0.5534$, a mean change of $-0.1763$. Nonlinear protected AUC changed from $0.7218$ to $0.5573$, while task utility AUC changed from $0.7573$ to $0.7579$ ($+0.0006$). The post-erasure protected balanced accuracy was $0.5293$. These values are retained as exploratory clean-room evidence because the archived artifact itself is marked \texttt{exploratory\_pending\_audit}.
+\section{Experiment 1: Canonical LEACE clean-room matrix} % M2 lead; ~2 pages
+\subsection{Question and design}
+This experiment establishes the reference behavior before evaluating geometric variants. The benchmark generates data at runtime and does not depend on a private dataset. Twenty seeds are crossed with five representation dimensions and five bias intensities, yielding 500 configurations. The protected signal is controlled so that a protected probe has a measurable baseline. Dimension and intensity vary independently to test whether the effect is an artifact of a single scale.
 
-\subsection{Sparse/localized Pareto experiment}
-In the 20-seed sparse experiment, the raw protected AUC was $0.9026\pm0.0146$ and task AUC was $0.8597\pm0.0182$. Full canonical LEACE reduced protected AUC to $0.5000$ and produced task AUC $0.8607\pm0.0166$, a task-AUC change of $+0.0010$ (Wilcoxon $p=0.0897$). A less aggressive sparse intervention selecting 60\% of the observations and using $\lambda=1$ yielded protected AUC $0.7790\pm0.0169$ with task AUC $0.8602\pm0.0168$. Thus a fairness--utility frontier is observable, but the experiment does not establish that sparse intervention is superior to full LEACE.
+The canonical \texttt{LeaceEraser.fit} operator is estimated on the fitting split. The transformed representation is then passed to independent linear and nonlinear protected probes and an independent task predictor. Held-out probe performance is the primary protected-information outcome.
 
-\subsection{Independent mean-line / Gaussian validation}
-The independent synthetic test used seed 42, two protected groups of 300 observations, dimension 12, a fixed train/test split, and a controlled group shift. At $\alpha=0$, protected AUC was 0.9447 and task macro-F1 was 0.7024. At $\alpha=0.50$, these became 0.7914 and 0.7429. At $\alpha=1$, protected AUC reached 0.5000 and macro-F1 was 0.7500. The test-set mean gap decreased from 2.3911 to 0.4476.
+\subsection{Results}
+The aggregate mean orientation-invariant linear protected AUC falls from 0.7296384 before intervention to 0.5533500 after canonical LEACE, a reduction of 0.1762884. Nonlinear protected AUC falls from 0.7218170 to 0.5573060, a reduction of 0.1645110. Protected balanced accuracy after intervention is 0.5292600. Task AUC changes from 0.7573084 to 0.7579225, an increase of only 0.0006141.
 
-The preregistered interior-optimum criterion was not supported: the best fairness point within the macro-F1 tolerance occurred at $\alpha=1$. We therefore reject the stronger claim that partial mean transport is generically optimal. Symmetric diagonal-Gaussian KL decreased from 3.2142 to 0.3795 rather than zero, directly demonstrating that equalized means do not imply equal distributions.
+The result supports the narrow claim that canonical LEACE can suppress recoverable protected information in this controlled construction without a material average utility penalty. The nonlinear result is an empirical stress test rather than a theorem: linear erasure does not by itself imply nonlinear indistinguishability. The residual nonlinear AUC above 0.5 prevents the stronger claim of complete empirical removal.
 
-\subsection{MILK10k real-data gate}
-At manuscript preparation time, the real-data LEACE-CL workflow was executing as run 31827275170. The experiment uses a 768-dimensional DINOv2 representation, a fixed seed, lesion-level train/validation/test separation, train-only fitting of $d$, $S_W$, $w$, and $P$, and an unconditional test-time transformation. No numerical MILK10k result is reported here until the workflow artifact is complete and passes the same audit chain. This is a deliberate evidence gate rather than a missing analysis.
+\subsection{Controls and failure analysis}
+The 500-configuration matrix controls against cherry-picking a single seed or dimension. The clean-room generator prevents accidental external-data leakage. The canonical library implementation prevents a manual projection from being mislabeled as LEACE. The main limitation is synthetic external validity.
 
-\section{Discussion} % Lead: M4; support: M2
-The results support three increasingly cautious conclusions. First, canonical LEACE can substantially reduce recoverability of a protected concept in controlled representations while leaving a downstream task approximately unchanged. Second, fairness gains can be distributed along a Pareto frontier when interventions are localized or partial, but this does not by itself establish superiority over canonical erasure. Third, a geometric intervention based on maximum mean separation has a clean algebraic property---exact equality of the fitted training means at $\alpha=1$---yet that property is weaker than distributional indistinguishability and does not guarantee an interior fairness--utility optimum.
+The archived artifact labels the matrix exploratory/pending audit, and that status is retained. The values are reproducible benchmark evidence but not a real-world fairness result. A stronger claim requires the same protocol on a public real representation with an independently verified pipeline.
 
-This distinction is important for interpretation. If a protected variable is not actively degrading the task, reducing its representation may be scientifically unnecessary. Conversely, a protected variable may remain encoded without causing an observed fairness violation under one downstream model. Our framework therefore treats protected predictability as an audit signal, not as a universal fairness objective.
+\subsection{Interpretation}
+Experiment 1 establishes the baseline against which every later intervention must be judged. A geometric method producing a larger protected-AUC reduction but substantially worse utility is not automatically preferable. Conversely, a small reduction with perfect utility is insufficient if protected information remains highly recoverable. This motivates the Pareto analysis and geometric falsification tests.
 
-The maximum-separation construction is best understood as a controlled diagnostic/intervention. It asks whether a rank-one map aligned with the Fisher separation direction is sufficient to collapse a particular first-moment contrast. Canonical LEACE remains the reference method for the broader linear concept-erasure problem because its objective and guarantees are not reducible to midpoint matching.
+\section{Experiment 2: Sparse/localized LEACE Pareto frontier} % M2 lead; ~2 pages
+\subsection{Question and design}
+Experiment 2 asks whether full concept erasure is necessary for every fairness objective. Twenty independent seeds use $N=1200$ and $D=32$. Canonical LEACE is fitted on training data. Sparse variants intervene only on selected observations according to a train-derived protected-direction score and vary selected fraction and intervention strength over $\{0.02,0.05,0.10,0.20,0.40,0.60,1.00\}\times\{0.25,0.50,0.75,1.00\}$.
 
-\section{Limitations and reproducibility} % Lead: M2; support: M4
-The principal limitation is that the strongest completed evidence in this draft is synthetic or clean-room validation. Synthetic experiments establish mechanism-level behavior but do not establish clinical or real-world fairness. The real MILK10k experiment is therefore treated as a separate gate rather than being inferred from synthetic behavior.
+Selection rules are derived from training representations and every candidate is evaluated on the same held-out split. Full LEACE is the reference endpoint. The collection is interpreted as a fairness--utility frontier rather than a single winner.
 
-The current MILK10k representation is produced by a generic DINOv2 backbone rather than a dermatology-specific pretrained encoder. Protected skin-tone labels and diagnostic metadata are used only according to the frozen train/test protocol; they are not evidence that the representation is causally fair or unfair. Future work should test multiple encoders, independent seeds, additional protected attributes, and multiple downstream task models.
+\subsection{Baseline and full erasure}
+The raw representation has protected AUC 0.9025586 $\pm$ 0.0145988 and task AUC 0.8596726 $\pm$ 0.0182285. Full canonical LEACE reaches protected AUC 0.5000000 and task AUC 0.8607138 $\pm$ 0.0165824. The mean task-AUC change is +0.0010412 and the paired Wilcoxon test gives $p=0.08969$.
 
-All negative results are retained. In particular, the failure to support a generic interior optimum is a result, not a defect of the protocol. The repository contains the experiment specifications, workflows, source code, and archived artifacts required to reconstruct the reported exploratory results.
+This is a strong controlled result for protected predictability: the linear probe reaches chance while task AUC does not degrade. It remains synthetic and therefore does not establish downstream fairness in a real population.
 
-\section{Conclusion} % Lead: M4; support: M2
-A rigorous fairness audit must distinguish concept recoverability, mean equality, distributional equality, and downstream fairness. Our joint M2/M4 experiments show that canonical LEACE is an effective reference intervention for reducing linear and nonlinear protected predictability in controlled settings, while geometric mean transport provides a useful but narrower test of first-moment separation. The proposed LEACE-CL map is unconditional at application time and exactly equalizes the fitted group means at full strength, but the independent synthetic test rejects a generic interior-optimum claim and shows that equal means leave covariance structure intact. The appropriate scientific conclusion is therefore not that one projection solves fairness, but that controlled, auditable intervention paths reveal where fairness and utility objectives agree, conflict, or remain unidentifiable from representation statistics alone.
+\subsection{Sparse point and Pareto interpretation}
+A representative less-aggressive point at 60\% selection and $\lambda=1$ gives protected AUC 0.7790340 $\pm$ 0.0168693 and task AUC 0.8601984 $\pm$ 0.0167822. Relative to raw, protected AUC decreases by 0.1235247 while task AUC increases by 0.0005257; the protected-AUC change is significant in the paired analysis ($p<10^{-4}$).
+
+The point demonstrates a continuum between no intervention and complete erasure. It does not beat full LEACE on the primary protected-AUC objective. Its value is therefore diagnostic: it exposes an interpretable operating frontier for settings where intervention magnitude or coverage has a cost.
+
+\subsection{Negative finding}
+The experiment does not support the claim that sparse intervention is superior to canonical LEACE. Full LEACE is at the fairness endpoint without an observed task-AUC penalty in this synthetic benchmark. The paper therefore does not present sparse LEACE as a new state-of-the-art method.
+
+\subsection{Reproducibility and limits}
+The workflow records seeds, selection fractions, intervention strengths, protected probes, nonlinear probes, task AUC, and aggregate statistics. The main limitation is synthetic generation. The selected-point rule is also a research diagnostic rather than a deployment policy. Real-data validation is required before any practical claim.
+
+\section{Experiment 3: Independent mean-line/Gaussian validation and falsification} % M4 lead; ~2 pages
+\subsection{Question and design}
+This experiment isolates the first-moment claim from the broader LEACE problem. Two protected groups of 300 observations are generated in $D=12$, with a fixed train/test split and controlled group shift. The intervention follows $\alpha\in\{0,0.05,\ldots,1\}$. The independent test evaluates protected AUC, task macro-F1, test-set mean separation, and symmetric diagonal-Gaussian KL.
+
+The first falsification question is whether an interior intervention strength is generically preferable to full equalization. The second is whether equal means imply equal distributions. Both criteria are defined before reading the trajectory.
+
+\subsection{Trajectory}
+At $\alpha=0$, protected AUC is 0.9447 and task macro-F1 is 0.7024. At $\alpha=0.50$, protected AUC decreases to 0.7914 while macro-F1 increases to 0.7429. At $\alpha=1$, protected AUC reaches 0.5000 and macro-F1 reaches 0.7500. The test-set mean gap falls from 2.3911 to 0.4476.
+
+The trajectory moves protected predictability in the intended direction, but the full-strength endpoint remains the strongest fairness point under the predefined criterion. The stronger hypothesis of a generic interior optimum is therefore falsified. We retain this negative result instead of selecting an intermediate value because it looks like a compromise.
+
+\subsection{Distributional falsification}
+Symmetric diagonal-Gaussian KL falls from 3.2142 at baseline to 0.3795 at full strength. It does not reach zero. Equality of empirical means is therefore insufficient to establish equality of distributions. Covariance and higher-order structure remain capable of separating groups after the first moment is collapsed.
+
+This directly constrains the interpretation of LEACE-CL. Its exact mean-equalization property is valid, but it cannot be presented as a guarantee of distributional indistinguishability.
+
+\subsection{Positive and negative conclusions}
+The positive result is mechanistic: mean transport can strongly reduce protected predictability and, in this construction, coincide with improved task utility. The negative result is equally important: there is no evidence here for a generic interior optimum, and mean equality does not imply distributional equality. Both belong in the paper.
+
+\subsection{Reproducibility}
+The experiment is independently generated, uses a fixed seed, records the full $\alpha$ trajectory, and has a dedicated specification and result record. Its role is mechanism validation rather than external validity.
+
+\section{Experiment 4: Unconditional maximum-separation LEACE-CL} % M4 lead; ~2 pages
+\subsection{Definition and motivation}
+The proposed LEACE-CL intervention is constructed from the two empirical group means and within-group covariance. The contrast $d=\mu_1-\mu_0$ is combined with Fisher's maximum-separation direction $w=S_W^{-1}d$. The rank-one operator $P=dw^T/(w^Td)$ is normalized so that $Pd=d$ exactly.
+
+The transformation $T_\alpha(z)=z-\alpha P(z-\mu_f)$ is unconditional after fitting: the application stage does not inspect the protected label of the individual sample. This distinguishes it from the earlier conditional mean-shift diagnostic.
+
+\subsection{Analytic verification}
+Because $Pd=d$ and the group means lie symmetrically around $\mu_f$, applying $P$ at $\alpha=1$ removes the full affine contrast. The independent numerical verification reports $|Pd-d|=0$ to machine precision and a post-transformation mean difference of approximately $3.55\times10^{-16}$.
+
+These tests verify the implementation, not scientific superiority. An exact algebraic property can hold even when its downstream fairness implications are limited.
+
+\subsection{What can and cannot be claimed}
+The construction supports three precise claims: unconditional application after train-only fitting; exact fitted mean equalization at full strength; and a geometrically defined rank-one direction based on maximum separation. It does not establish nonlinear protected-information removal, demographic parity, equalized odds, or superiority over canonical LEACE.
+
+\subsection{MILK10k gate}
+The real-data workflow applies the same train-only principle to a 768-dimensional DINOv2 representation and lesion-level train/validation/test separation. Parameters $d$, $S_W$, $w$, and $P$ are fitted on training representations only, then the same transformation is applied without observing the protected group. At manuscript freeze the workflow artifact was not yet available, so no numerical MILK10k LEACE-CL result is promoted.
+
+The promotion sequence is fixed: verify workflow success; inspect output schema; verify train/test separation; verify $Pd=d$ numerically; inspect the full $\alpha$ curve; compare canonical LEACE and LEACE-CL on protected predictability and downstream utility; then update the paper with audited values.
+
+\subsection{Falsification alternatives}
+LEACE-CL is not required to win. A valid outcome includes outperforming, matching, or underperforming canonical LEACE. If exact mean equalization produces little downstream fairness improvement, or canonical LEACE gives a better fairness--utility trade-off, the scientifically correct conclusion is that LEACE-CL is primarily a geometric diagnostic. This is a valid endpoint, not a failure of the study.
+
+\section{Experiment 5: Selective mode/support LEACE H20} % M2 lead; ~2 pages; pending
+\subsection{Question and design}
+A second selective intervention tests whether a very small number of observations can be targeted using a train-derived common-support criterion. The implementation uses canonical \texttt{LeaceEraser}, a one-dimensional protected-direction score, KDE-derived group modes, and the empirical common-support interval. The fixed budget is $H=20$ observations.
+
+Training-derived support limits determine eligibility. The same rule is transferred to the test representation, and at most 20 test observations are transformed. No test fairness metric is used to choose the observations. This preserves the train/test logic required for an auditable selective intervention.
+
+\subsection{Current status}
+The implementation specifies 20 seeds, $N=1200$, $D=32$, a 30\% held-out test split, and canonical LEACE fitting. At manuscript freeze the numerical artifact had not been independently promoted. Consequently no numerical outcome is included in the Results claims.
+
+\subsection{Decision tree}
+If the fixed-budget intervention produces a significant protected-AUC reduction with negligible task-AUC change, it becomes evidence for localized intervention. If it fails, the result will indicate that support-based selection is too weak or unstable relative to full LEACE. If it is unstable across seeds, the method will be rejected for the common paper. The experiment therefore has a predefined useful outcome for both success and failure.
+
+\section{Cross-experiment synthesis} % M4 lead; M2 support
+The experiments form a hierarchy. Experiment 1 establishes canonical behavior. Experiment 2 asks whether a partial intervention traces a Pareto frontier. Experiment 3 isolates first-moment geometry and falsifies an overly strong interior-optimum hypothesis. Experiment 4 turns that geometry into an unconditional rank-one operator and states its exact guarantee. Experiment 5 tests whether selective deployment can reduce intervention cost.
+
+The common pattern is that protected recoverability is measurable and modifiable, while fairness is not reducible to a single representation statistic. The strongest completed evidence supports reduction of protected predictability with little average utility change in controlled settings. The strongest negative evidence prevents overclaiming: mean equality is not distributional equality; sparse intervention is not shown superior to full LEACE; and no synthetic result stands in for real-data validation.
+
+\section{Discussion} % M4 lead
+The principal methodological contribution is separation of claims by level. A representation-level claim concerns what a probe can recover. A geometric claim concerns a property of the transformation. A distributional claim concerns the full group distributions. A downstream fairness claim concerns task outcomes. These levels must not be collapsed.
+
+The failed interior-optimum hypothesis is evidence that the mechanism does not justify a generic partial-strength rule. The residual Gaussian KL after mean equalization is not an implementation bug; it is the expected consequence of changing first moments without constraining covariance. Canonical LEACE remains the reference intervention. LEACE-CL should be described as a geometrically motivated diagnostic/intervention with an exact first-moment guarantee. Sparse variants are operating points, not automatic replacements.
+
+\section{Limitations and reproducibility} % M2 lead
+Completed numerical evidence is predominantly synthetic or clean-room. Such experiments establish mechanism-level behavior but not clinical, sociotechnical, or deployment-level fairness. The real MILK10k experiments therefore remain explicit gates. The DINOv2 representation used in the real-data protocol is generic rather than dermatology-specific.
+
+Protected predictability is not itself a fairness metric. A model can have low protected AUC and still violate equal opportunity; conversely, protected information can remain encoded without producing a measured fairness violation for a particular task. The paper therefore reports representation and outcome metrics separately.
+
+Sparse and support-selective interventions remain exploratory constructions. Their selection rules should not be interpreted as deployment policies until robustness, distribution shift, and sensitivity to protected-attribute measurement are tested. All promoted results are tied to repository specifications and workflow artifacts; temporary or non-canonical harnesses are explicitly excluded.
+
+\section{Conclusion} % M4 lead
+The joint M2/M4 audit supports a cautious but testable conclusion: linear concept erasure can reduce recoverable protected information while preserving task utility in controlled settings, but representation-level suppression is not synonymous with fairness. Canonical LEACE provides the reference intervention. Sparse interventions reveal a fairness--utility frontier without demonstrating superiority. Mean-line testing validates the intended first-moment mechanism but falsifies a generic interior optimum and demonstrates that equal means do not imply equal distributions. The unconditional LEACE-CL construction supplies the exact geometric guarantee $Pd=d$ and hence exact fitted mean equalization at full strength, but its real-data and downstream fairness value must be established empirically.
 
 \backmatter
-
 \bmhead{Data and code availability}
-All experiment specifications, source code, workflow definitions, and auditable synthetic artifacts used for this draft are maintained in the accompanying `lab` repository. The real-data MILK10k gate is reported only after its workflow artifact is available and independently audited.
-
+Experiment specifications, source code, workflows, and synthetic evidence records are maintained in the accompanying `lab` repository. Real-data results are promoted only after artifact-level audit.
 \bmhead{Declarations}
 \textbf{Funding} No funding statement supplied in this draft.\\
 \textbf{Conflict of interest} The authors declare no competing interests.\\
-\textbf{Ethics approval} Not applicable to the synthetic experiments; the real-data component uses a public dataset and will be reported under its source terms.
-
+\textbf{Ethics approval} Synthetic experiments require no human-subject approval. Public-dataset experiments will follow source dataset terms.
 \bibliography{references}
-
 \end{document}
