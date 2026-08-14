@@ -1,0 +1,1 @@
+Controls: seed=42; lesion-level split 70/15/15; DINOv2-base 768 dimensions; same real MILK10k bundle; alpha grid 0.00..1.00 by 0.05; target lambda grid {0,.25,.5,.75,1}. No test-set tuning of target or alpha; the curve is evaluated after refitting train-only probes/models for each transformed representation.
