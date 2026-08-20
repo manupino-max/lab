@@ -1,0 +1,32 @@
+{
+  "experiment": "M2-CRITICAL-MASS-DELTAMU-20260814",
+  "source_commit": "68e4ca44fc800a50170606c0b63b6f4c56920ed3",
+  "rows": 1880,
+  "seeds": 20,
+  "dimensions": 32,
+  "delta_mu_norm": 2.0,
+  "dose_grid": [0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.00,1.05,1.10,1.15,1.20,1.25],
+  "mass_grid": [0.0,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90,0.95,1.00],
+  "epsilon_auc": 0.02,
+  "aggregate_cov_ratio_1": {
+    "dose_mean_linear_auc": [0.9148691289,0.9033945941,0.89086449997,0.87704370101,0.8620283580,0.8458593053,0.8285144414,0.8097506884,0.7897379194,0.7684436687,0.7458303282,0.7221290022,0.6972969824,0.6712544942,0.6443052435,0.6166830787,0.5883095886,0.5602197795,0.5337618569,0.5175594383,0.5144798627,0.5178146417,0.5352962466,0.5637725124,0.5939333172,0.6231766346],
+    "dose_critical_level": 0.95,
+    "mass_mean_linear_auc": [0.9148691289,0.8926883873,0.8679574150,0.8494088872,0.8308231969,0.8032557590,0.7844068604,0.7596702579,0.7414120406,0.71519775096,0.6958079492,0.6739614344,0.6525289217,0.6320551795,0.6083365395,0.5913308841,0.5688360556,0.5470351740,0.5294848713,0.5169210256,0.5144798627],
+    "mass_critical_level": 0.95
+  },
+  "interpretation": {
+    "dose": "Removing 95% of the mean separation is the first tested grid point with mean oriented linear AUC <= 0.52; 90% remains above threshold.",
+    "mass": "Moving 95% of protected-group samples by the full -delta_mu displacement is the first tested grid point with mean oriented linear AUC <= 0.52; 90% remains above threshold.",
+    "theoretical_endpoint": "At dose=1 or mass=1 the population mean difference induced by the constructed mean-shift component is zero; empirical AUC remains slightly above 0.5 because of finite-sample estimation/noise.",
+    "practical_conclusion": "The M2 critical mass is approximately 0.95 of the mean-shift mass on the tested 5% grid, not 1.0 in the finite-sample detection criterion.",
+    "scope": "This closes the controlled mean-separation question only; it does not imply complete protected-information removal when covariance/nonlinear structure is present."
+  },
+  "provenance": {
+    "raw_matrix_rows": 1880,
+    "raw_matrix_sha256": "246994d27be2e06f2472d68bdf473c4dbf139bbe89c96594bd59d149f67c7c0d",
+    "summary_sha256_local": "2335a4a6938bca838512e6169aa63ed9d36ed71afe8567442e452566ae141a7a",
+    "execution": "local deterministic verification of the exact lab-source script because Actions runner was queue/installation constrained",
+    "actions_run": "31825186014",
+    "actions_fast_run": "31825221209"
+  }
+}

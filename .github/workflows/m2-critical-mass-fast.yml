@@ -1,0 +1,27 @@
+name: M2 Critical Mass DeltaMu Fast
+on:
+  push:
+    paths:
+      - 'experiments/m2_critical_mass_deltamu_numpy.py'
+      - '.github/workflows/m2-critical-mass-fast.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  critical_mass_fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run dependency-free M2 experiment
+        run: python experiments/m2_critical_mass_deltamu_numpy.py
+      - name: Validate evidence
+        run: |
+          test -s results/m2_critical_mass_deltamu_fast/results.csv
+          test -s results/m2_critical_mass_deltamu_fast/summary.json
+      - name: Upload M2 private-run evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: M2-critical-mass-fast-${{ github.sha }}
+          path: results/m2_critical_mass_deltamu_fast/
+          retention-days: 90

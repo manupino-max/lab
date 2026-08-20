@@ -1,11 +1,8 @@
-"""Clean-room canonical LEACE replication harness for M4.
+"""M2 P0 canonical LEACE clean-room matrix.
 
-Exploratory only until executed and audited. Uses the canonical
-`concept_erasure` implementation rather than a hand-written projection.
-Outputs are deliberately separate from historical experiment files.
-
-The harness records baseline-vs-LEACE protected leakage, because an
-absolute post-LEACE AUC* is not enough to quantify mitigation effect.
+Uses the pinned canonical concept_erasure.LeaceEraser implementation.
+This branch is an execution bridge only; it does not replace M2 evidence
+until provenance/audit gates are closed.
 """
 from pathlib import Path
 import csv, json, platform
@@ -19,70 +16,75 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
 OUT = Path(__file__).resolve().parent / "results" / "leace_canonical_replication"
+SEEDS = list(range(20))
+DIMS = [8, 16, 32, 64, 128]
+INTENSITIES = [0.25, 0.5, 1.0, 2.0, 4.0]
 
 
-def make_data(seed, n=800, d=12):
+def make_data(seed, d, intensity, n0=500, n1=500):
     rng = np.random.default_rng(seed)
-    g = rng.integers(0, 2, n)
-    x = rng.normal(size=(n, d))
-    x[:, 0] += 1.0 * g
-    x[:, 1] += 0.8 * (g - 0.5) ** 2
-    x[:, 2] += 0.6 * (g - 0.5) * np.abs(x[:, 3])
-    y = (x[:, 4] + 0.8 * g + rng.normal(size=n) > 0).astype(int)
-    return x, g, y
+    z = np.r_[np.zeros(n0, dtype=int), np.ones(n1, dtype=int)]
+    y_signal = rng.normal(size=n0 + n1)
+    y = (y_signal > 0).astype(int)
+    x = rng.normal(size=(n0 + n1, d))
+    x[:, 0] += intensity * z
+    x[:, 1] += y_signal
+    return x, z, y
 
 
-def oriented_auc(y, score):
+def auc_star(y, score):
     a = roc_auc_score(y, score)
-    return max(a, 1.0 - a)
+    return max(a, 1.0 - a), a
 
 
-def probe_metrics(x_train, g_train, x_test, g_test, y_train, y_test):
-    lin = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(x_train, g_train)
-    rbf = make_pipeline(StandardScaler(), SVC(kernel="rbf", probability=True)).fit(x_train, g_train)
-    task = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(x_train, y_train)
+def probe_metrics(x_train, g_train, x_test, g_test, y_train, y_test, seed):
+    lin = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=seed)).fit(x_train, g_train)
+    rbf = make_pipeline(StandardScaler(), SVC(kernel="rbf", probability=True, random_state=seed)).fit(x_train, g_train)
+    task = make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000, random_state=seed)).fit(x_train, y_train)
 
     p_lin = lin.predict_proba(x_test)[:, 1]
     p_rbf = rbf.predict_proba(x_test)[:, 1]
     p_task = task.predict_proba(x_test)[:, 1]
+    a_lin, raw_lin = auc_star(g_test, p_lin)
+    a_rbf, raw_rbf = auc_star(g_test, p_rbf)
     pred_lin = (p_lin >= 0.5).astype(int)
     pred_task = (p_task >= 0.5).astype(int)
-
     return {
-        "linear_auc_oriented": oriented_auc(g_test, p_lin),
+        "linear_auc_star": a_lin,
+        "linear_auc_raw": raw_lin,
         "linear_balanced_accuracy": balanced_accuracy_score(g_test, pred_lin),
-        "nonlinear_auc_oriented": oriented_auc(g_test, p_rbf),
+        "nonlinear_auc_star": a_rbf,
+        "nonlinear_auc_raw": raw_rbf,
         "utility_auc": roc_auc_score(y_test, p_task),
         "utility_accuracy": accuracy_score(y_test, pred_task),
     }
 
 
-def run(seed=42):
+def run(seed, d, intensity):
     from concept_erasure import LeaceEraser
 
-    x, g, y = make_data(seed)
-    tr, te = train_test_split(np.arange(len(g)), test_size=0.35,
-                              random_state=seed, stratify=g)
+    x, g, y = make_data(seed, d, intensity)
+    idx = np.arange(len(g))
+    space_train, rem = train_test_split(idx, test_size=0.4, random_state=seed, stratify=g)
+    probe_train, test = train_test_split(rem, test_size=0.5, random_state=seed + 1000, stratify=g[rem])
 
-    raw = probe_metrics(x[tr], g[tr], x[te], g[te], y[tr], y[te])
+    raw = probe_metrics(x[probe_train], g[probe_train], x[test], g[test], y[probe_train], y[test], seed)
 
-    xt = torch.from_numpy(x[tr]).float()
-    gt = torch.from_numpy(g[tr]).long()
+    xt = torch.from_numpy(x[space_train]).float()
+    gt = torch.from_numpy(g[space_train]).long()
     eraser = LeaceEraser.fit(xt, gt)
-    ztr = eraser(xt).detach().numpy()
-    zte = eraser(torch.from_numpy(x[te]).float()).detach().numpy()
-    post = probe_metrics(ztr, g[tr], zte, g[te], y[tr], y[te])
+    z = eraser(torch.from_numpy(x).float()).detach().numpy()
+    post = probe_metrics(z[probe_train], g[probe_train], z[test], g[test], y[probe_train], y[test], seed + 500000)
 
     return {
-        "seed": seed, "n": len(g), "d": x.shape[1],
-        "raw_linear_auc_oriented": raw["linear_auc_oriented"],
-        "post_linear_auc_oriented": post["linear_auc_oriented"],
-        "delta_linear_auc_oriented": post["linear_auc_oriented"] - raw["linear_auc_oriented"],
-        "raw_linear_balanced_accuracy": raw["linear_balanced_accuracy"],
+        "seed": seed, "D": d, "intensity": intensity,
+        "raw_linear_auc_star": raw["linear_auc_star"],
+        "post_linear_auc_star": post["linear_auc_star"],
+        "delta_linear_auc_star": post["linear_auc_star"] - raw["linear_auc_star"],
         "post_linear_balanced_accuracy": post["linear_balanced_accuracy"],
-        "raw_nonlinear_auc_oriented": raw["nonlinear_auc_oriented"],
-        "post_nonlinear_auc_oriented": post["nonlinear_auc_oriented"],
-        "delta_nonlinear_auc_oriented": post["nonlinear_auc_oriented"] - raw["nonlinear_auc_oriented"],
+        "raw_nonlinear_auc_star": raw["nonlinear_auc_star"],
+        "post_nonlinear_auc_star": post["nonlinear_auc_star"],
+        "delta_nonlinear_auc_star": post["nonlinear_auc_star"] - raw["nonlinear_auc_star"],
         "raw_utility_auc": raw["utility_auc"],
         "post_utility_auc": post["utility_auc"],
         "delta_utility_auc": post["utility_auc"] - raw["utility_auc"],
@@ -92,22 +94,24 @@ def run(seed=42):
 
 
 if __name__ == "__main__":
-    seeds = [11, 22, 33, 42, 55]
-    rows = [run(s) for s in seeds]
+    rows = [run(seed, d, intensity) for d in DIMS for intensity in INTENSITIES for seed in SEEDS]
     OUT.mkdir(parents=True, exist_ok=True)
-    with (OUT / "seed_results.csv").open("w", newline="", encoding="utf-8") as f:
+    with (OUT / "matrix_results.csv").open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=rows[0].keys())
         w.writeheader(); w.writerows(rows)
     summary = {
         "status": "exploratory_pending_audit",
-        "seeds": seeds,
         "n_runs": len(rows),
-        "mean_raw_linear_auc_oriented": float(np.mean([r["raw_linear_auc_oriented"] for r in rows])),
-        "mean_post_linear_auc_oriented": float(np.mean([r["post_linear_auc_oriented"] for r in rows])),
-        "mean_delta_linear_auc_oriented": float(np.mean([r["delta_linear_auc_oriented"] for r in rows])),
-        "mean_raw_nonlinear_auc_oriented": float(np.mean([r["raw_nonlinear_auc_oriented"] for r in rows])),
-        "mean_post_nonlinear_auc_oriented": float(np.mean([r["post_nonlinear_auc_oriented"] for r in rows])),
-        "mean_delta_nonlinear_auc_oriented": float(np.mean([r["delta_nonlinear_auc_oriented"] for r in rows])),
+        "seeds": SEEDS,
+        "dims": DIMS,
+        "intensities": INTENSITIES,
+        "mean_raw_linear_auc_star": float(np.mean([r["raw_linear_auc_star"] for r in rows])),
+        "mean_post_linear_auc_star": float(np.mean([r["post_linear_auc_star"] for r in rows])),
+        "mean_delta_linear_auc_star": float(np.mean([r["delta_linear_auc_star"] for r in rows])),
+        "mean_post_linear_balanced_accuracy": float(np.mean([r["post_linear_balanced_accuracy"] for r in rows])),
+        "mean_raw_nonlinear_auc_star": float(np.mean([r["raw_nonlinear_auc_star"] for r in rows])),
+        "mean_post_nonlinear_auc_star": float(np.mean([r["post_nonlinear_auc_star"] for r in rows])),
+        "mean_delta_nonlinear_auc_star": float(np.mean([r["delta_nonlinear_auc_star"] for r in rows])),
         "mean_raw_utility_auc": float(np.mean([r["raw_utility_auc"] for r in rows])),
         "mean_post_utility_auc": float(np.mean([r["post_utility_auc"] for r in rows])),
         "mean_delta_utility_auc": float(np.mean([r["delta_utility_auc"] for r in rows])),
